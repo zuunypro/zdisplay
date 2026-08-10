@@ -39,7 +39,7 @@ struct Header {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(Header) == 56, "cabecalho do payload mudou sem versao nova");
+static_assert(sizeof(Header) == 56, "payload header changed without a version bump");
 
 /// CRC-32 (polynomial 0xEDB88320). Defined once in this header so the packer
 /// and the installer cannot drift apart.

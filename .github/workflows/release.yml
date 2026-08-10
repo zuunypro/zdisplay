@@ -1,0 +1,94 @@
+name: Release
+
+# Builds the published binaries in CI rather than on a developer machine, so the
+# SHA-256 in the release notes is the hash of an artifact anyone can trace back
+# to a public build log.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach assets to (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            make
+
+      # installer/make-setup.bat runs under cmd and calls g++ directly, so the
+      # toolchain has to be reachable from a native Windows PATH. The location of
+      # the runner's MSYS2 install is not fixed, so it is resolved here instead of
+      # being hardcoded.
+      - name: Expose the toolchain to cmd
+        shell: msys2 {0}
+        run: echo "TOOLCHAIN_DIR=$(cygpath -w /ucrt64/bin)" >> "$GITHUB_ENV"
+
+      - name: Verify the tag matches src/version.h
+        shell: msys2 {0}
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          declared=$(grep -oP 'ZDISPLAY_VERSION_STR\s+"\K[0-9.]+' src/version.h)
+          # The tag is vMAJOR.MINOR.PATCH; version.h carries a fourth build field.
+          if [ "v${declared%.*}" != "$tag" ]; then
+            echo "Tag $tag does not match ZDISPLAY_VERSION_STR ($declared) in src/version.h."
+            echo "Bump the header or retag before releasing."
+            exit 1
+          fi
+          echo "Tag $tag matches version $declared."
+
+      - name: Build and run the test suite
+        shell: msys2 {0}
+        run: make check
+
+      - name: Verify binary hardening
+        shell: msys2 {0}
+        run: |
+          for flag in NX_COMPAT DYNAMIC_BASE HIGH_ENTROPY_VA; do
+            objdump -x build/release/zdisplay.exe | grep -q "$flag" \
+              || { echo "$flag is not set on the binary"; exit 1; }
+          done
+
+      - name: Build the installer
+        shell: cmd
+        run: |
+          set "PATH=%TOOLCHAIN_DIR%;%PATH%"
+          call installer\make-setup.bat
+
+      - name: Collect artifacts and hashes
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp build/release/zdisplay.exe dist/
+          cp zdisplay-setup.exe dist/
+          cd dist
+          sha256sum zdisplay.exe zdisplay-setup.exe | tee SHA256SUMS.txt
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist/zdisplay.exe
+            dist/zdisplay-setup.exe
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true

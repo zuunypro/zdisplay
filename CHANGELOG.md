@@ -1,0 +1,66 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.0.0] — 2026-08-10
+
+First public, stable release.
+
+### Added
+
+- **Seven adjustments in one program**: brightness, contrast, saturation and
+  vibrance, gamma, color temperature, hue, white balance and blue light
+  reduction.
+- **Shadow detail (black equalizer)** as two sliders — *Shadows* raises the
+  black floor, *Clarity* restores the slope the lift flattens — applied through
+  the gamma ramp, so it works inside exclusive-fullscreen games with no frame
+  cost.
+- **Backend stack with automatic fallback**: GDI gamma ramp, Magnification color
+  matrix, NVAPI (NVIDIA), ADL (AMD), DDC/CI, SDR white level for HDR displays,
+  WMI backlight, and a dimming overlay. Nothing is required; the program reports
+  per monitor which control works and why one does not.
+- **Profiles** with optional per-monitor overrides, switching automatically by
+  foreground application or schedule, including sunrise- and sunset-relative
+  times.
+- **Vision tab**: automatic warming and dimming across the day, layered on top
+  of any profile, plus a 20-20-20 eye break reminder.
+- **Command line and named pipe**, so a second invocation becomes a command to
+  the running instance — usable from scripts, Stream Deck and AutoHotkey.
+- **Global hotkeys**, configurable, with a per-profile override.
+- **Portable mode** via a `zdisplay-portable.txt` marker next to the executable.
+- **Self-contained installer** that installs per user without administrator
+  rights and validates its embedded payload by CRC-32, SHA-256 and PE x64
+  structure before writing anything.
+
+### Safety
+
+- Absolute light floor of 8% estimated luminance that no input path can break
+  through, measured on the curve actually sent to the display.
+- Confirmation dialog with automatic revert after 15 seconds when adjustments
+  make the screen too dark.
+- Emergency hotkey `Ctrl+Alt+Shift+K`, also available as `--panic`, which
+  restores the screen and pauses.
+- Crash recovery through a session lock: an unclean shutdown is detected at the
+  next start and the screen is restored before anything else runs.
+- The original state of every monitor is captured at startup and restored on
+  reset, preserving any ICC calibration instead of overwriting it with a linear
+  ramp.
+- DDC/CI writes are queued with a minimum interval, coalesced, never sent during
+  transitions, and capped per minute, to spare the monitor's EEPROM.
+
+### Security
+
+- All runtime DLLs resolve from `System32` only.
+- The command channel is per Windows session, with an explicit protected DACL,
+  and refuses remote clients; the client verifies the server's owner SID before
+  sending.
+- The binary is built with DEP, ASLR, high-entropy ASLR and stack protection,
+  all verified at build time.
+
+[Unreleased]: https://github.com/zuunypro/zdisplay/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/zuunypro/zdisplay/releases/tag/v1.0.0

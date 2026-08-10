@@ -1,6 +1,7 @@
 # Build output
 build/
 installer/build/
+dist/
 *.o
 *.d
 *.obj
@@ -9,6 +10,8 @@ installer/build/
 *.pdb
 *.ilk
 *.res
+*.a
+*.lib
 
 # Toolchain fetched by build.bat
 tools/
@@ -28,5 +31,13 @@ caps-result-*.tmp
 .vscode/
 .idea/
 *.swp
+*~
 Thumbs.db
 desktop.ini
+.DS_Store
+
+# Never commit credentials
+*.pfx
+*.p12
+*.snk
+.git-cred

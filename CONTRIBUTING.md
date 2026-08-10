@@ -82,6 +82,25 @@ from that, and are not negotiable:
 4. Describe the observable behavior that changed and how to test it by hand,
    where an automated test cannot reach — which is common in UI and hardware
    code.
+5. Add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) when the
+   change is user-visible.
+
+## Releasing
+
+Releases are built by CI, not on a developer machine, so the published SHA-256
+belongs to an artifact traceable to a public build log.
+
+1. Bump `ZDISPLAY_VERSION_*` in `src/version.h` and move the `Unreleased`
+   section of the changelog under the new version.
+2. Tag the commit `vMAJOR.MINOR.PATCH` and push the tag.
+3. The release workflow verifies that the tag matches `src/version.h`, runs the
+   suite, checks DEP/ASLR on the binary, builds the installer, and attaches
+   `zdisplay.exe`, `zdisplay-setup.exe` and `SHA256SUMS.txt` to the release.
+
+## Code of Conduct
+
+Participation in this project is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Reporting a problem
 

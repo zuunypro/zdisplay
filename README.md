@@ -24,6 +24,39 @@ wakes it through `SetWinEventHook` when the foreground window changes.
 
 ---
 
+## The part no other tool does
+
+**A black equalizer, in software, on any monitor.**
+
+Gaming monitors sell this as *Black eQualizer*, *Shadow Boost* or *Dark Boost*,
+and it only exists in the panel's own menu — if you paid for a panel that has
+it. It raises near-black detail so you can see into the unlit corner of a map or
+the dim room in a film.
+
+Every implementation has the same complaint: push it up and the shadows flatten
+into one grey, and the picture looks washed out. That happens because raising the
+black floor also flattens the slope near black, so neighbouring dark tones
+collapse into the same value.
+
+Zdisplay splits the job into two sliders. **Shadows** raises the floor;
+**Clarity** restores the slope the lift flattens. Measured across the 32 darkest
+tones, how many stay distinct from one another:
+
+| Setting | Distinct tones | Tone 128 (midtone) | Tone 255 (white) |
+|---|---|---|---|
+| neutral | 32 / 32 | 128 | 255 |
+| Shadows 100, no Clarity | 20 / 32 | — | — |
+| **Shadows 78 + Clarity 65** | **27 / 32** | **129** | **255** |
+
+The midtone moves by one point and white does not move at all. And because it
+goes through the gamma ramp rather than an overlay, it works **inside
+exclusive-fullscreen games**, with no frame cost and without showing up in
+screenshots.
+
+[Full explanation, with the curve and its limits →](#shadow-detail-black-equalizer)
+
+---
+
 ## Why it exists
 
 Getting all of this today means running several programs at once — and they
@@ -599,7 +632,10 @@ Full policy and reporting channel: [SECURITY.md](SECURITY.md).
 See [CONTRIBUTING.md](CONTRIBUTING.md) for building, running the suite, and the
 rules the codebase does not bend on — the absolute light floor, the
 exception-free binary, every backend being optional, and the ban on treating
-"detected" as "works".
+"detected" as "works". Participation is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+Release history is in the [changelog](CHANGELOG.md).
 
 Security vulnerabilities do not go in public issues: see
 [SECURITY.md](SECURITY.md).
