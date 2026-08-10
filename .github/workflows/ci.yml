@@ -49,7 +49,7 @@ jobs:
           sha256sum build/release/zdisplay.exe
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: zdisplay-${{ github.sha }}
           path: build/release/zdisplay.exe
