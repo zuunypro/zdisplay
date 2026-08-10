@@ -13,7 +13,6 @@ namespace {
 const wchar_t* kSettingsClass = L"ZdisplaySettingsWindow";
 
 using dpi::S;
-inline void DetectDpi(HWND hwnd) { dpi::DetectFor(hwnd); }
 
 void SetText(HWND h, const std::wstring& s) {
     if (h) ::SetWindowTextW(h, s.c_str());

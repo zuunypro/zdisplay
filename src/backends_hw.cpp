@@ -1808,8 +1808,9 @@ void GetWmiLevels(IWbemClassObject* obj, std::vector<int>* out) {
                 for (LONG i = lo; i <= hi; ++i) {
                     unsigned char b = 0;
                     if (FAILED(::SafeArrayGetElement(arr, &i, &b))) break;
+                    // b is an unsigned char, so only the upper bound can fail.
                     const int level = (int)b;
-                    if (level >= 0 && level <= 100) out->push_back(level);
+                    if (level <= 100) out->push_back(level);
                 }
             }
         }
