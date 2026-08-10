@@ -1,23 +1,22 @@
-## O que muda
+## What changes
 
-<!-- O comportamento observável que mudou, em uma ou duas frases. -->
+<!-- The observable behavior that changed, in a sentence or two. -->
 
-## Por quê
+## Why
 
-<!-- Issue relacionada, se houver: Closes #123 -->
+<!-- Related issue, if any: Closes #123 -->
 
-## Como testar
+## How to test
 
 <!--
-Passos para verificar à mão. Importante em código de UI e de hardware, onde o
-teste automatizado não alcança.
+Steps to verify by hand. This matters in UI and hardware code, where an
+automated test cannot reach.
 -->
 
 ## Checklist
 
-- [ ] `make check` passa (compila **e** roda a suíte)
-- [ ] Mudança de comportamento tem teste; correção de defeito tem teste que
-      falhava antes
-- [ ] Comentários novos estão em inglês; texto de interface e log, em português
-- [ ] Nenhuma flag de compilação foi duplicada fora de `flags.mk`
-- [ ] Nenhum caminho novo consegue furar o piso de luz
+- [ ] `make check` passes (builds **and** runs the suite)
+- [ ] Behavior changes have a test; bug fixes have a test that failed before
+- [ ] New comments are in English; UI text and log messages are in Portuguese
+- [ ] No build flag was duplicated outside `flags.mk`
+- [ ] No new path can break through the light floor

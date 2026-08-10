@@ -1,63 +1,70 @@
 # Zdisplay
 
 [![CI](https://github.com/zuunypro/zdisplay/actions/workflows/ci.yml/badge.svg)](https://github.com/zuunypro/zdisplay/actions/workflows/ci.yml)
-[![Licença: GPL-3.0](https://img.shields.io/badge/licen%C3%A7a-GPL--3.0-blue.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/zuunypro/zdisplay)](https://github.com/zuunypro/zdisplay/releases/latest)
 [![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011%20(x64)-0078d4)](https://github.com/zuunypro/zdisplay/releases/latest)
 
-Controle de **brilho, contraste, saturação, gamma, temperatura de cor, matiz e
-visão nas sombras** para Windows. Roda em segundo plano na bandeja, com perfis que trocam sozinhos conforme
-o programa em foco ou o horário, e pode ser alterado de fora por linha de comando.
+**Brightness, contrast, saturation, digital vibrance, gamma, color temperature,
+hue, blue light reduction and black-equalizer shadow detail — for Windows, in
+one tray app.** Works on any GPU, with or without DDC/CI, on HDR displays, and
+inside exclusive-fullscreen games. Profiles switch themselves by foreground
+application or time of day, and everything is scriptable from the command line.
 
-Feito em **C++ com Win32 puro**: um executável de ~1,6 MB, sem runtime nem
-dependência nenhuma, **3,6 MB de memória** em uso e 0% de CPU parado. O zero é
-literal: não existe laço de verificação em lugar nenhum — o programa dorme e o
-Windows o acorda por `SetWinEventHook` quando a janela em foco muda.
+Written in **pure C++ with Win32** — no framework, no runtime, no dependencies.
+A 1.6 MB executable using **3.6 MB of RAM and 0% CPU at idle**. The zero is
+literal: there is no polling loop anywhere. The program sleeps, and Windows
+wakes it through `SetWinEventHook` when the foreground window changes.
 
-**[Baixar a última versão](https://github.com/zuunypro/zdisplay/releases/latest)**
-· [página do projeto](https://zuuny.vercel.app/programas/zdisplay)
+**[Download the latest release](https://github.com/zuunypro/zdisplay/releases/latest)**
+· [project page](https://zuuny.vercel.app/programas/zdisplay)
+
+> The user interface is currently in Portuguese. Translations are planned — see
+> [Other languages](#other-languages).
 
 ---
 
-## Por que ele existe
+## Why it exists
 
-Hoje, para ter tudo isso, é preciso rodar vários programas ao mesmo tempo — e eles
-brigam entre si pela mesma rampa de gamma do Windows:
+Getting all of this today means running several programs at once — and they
+fight each other over the same Windows gamma ramp, where the last writer wins:
 
-| Programa | Faz | Não faz |
+| Program | Covers | Stops at |
 |---|---|---|
-| vibranceGUI | vibrance NVIDIA por jogo | brilho, contraste, gamma, Intel |
-| LightBulb / f.lux | temperatura de cor | saturação, hardware do monitor |
-| Gammy | brilho adaptativo | saturação, perfis por app |
-| Twinkle Tray | brilho DDC/CI (ótimo, mas Electron: 100–250 MB de RAM) | cor |
-| Monitorian | brilho DDC/CI leve | cor |
-| DimScreen | escurecer além do mínimo | tudo o mais |
+| vibranceGUI | NVIDIA vibrance per game | brightness, contrast, gamma, Intel |
+| LightBulb / f.lux | color temperature | saturation, monitor hardware |
+| Gammy | adaptive brightness | saturation, per-app profiles |
+| Twinkle Tray | DDC/CI brightness (excellent, but Electron: 100–250 MB of RAM) | color |
+| Monitorian | lightweight DDC/CI brightness | color |
+| DimScreen | dimming below the panel minimum | everything else |
 
-O Zdisplay junta as sete funções num programa só, resolve os conflitos entre elas e
-escolhe sozinho o melhor caminho disponível em cada máquina.
+Zdisplay brings the seven functions into a single program, resolves the
+conflicts between them, and picks the best available path on each machine by
+itself.
 
-## Funciona em qualquer PC
+## Works on any PC
 
-Na inicialização o Zdisplay detecta o que a máquina suporta e monta uma pilha de
-backends com recuo automático. Nada é obrigatório: se a GPU do fabricante não
-existir, o caminho universal assume.
+At startup Zdisplay detects what the machine supports and assembles a backend
+stack with automatic fallback. Nothing is required: if the vendor GPU is not
+there, the universal path takes over.
 
-| Backend | Controla | Funciona em | Limites |
+| Backend | Controls | Works on | Limits |
 |---|---|---|---|
-| **Rampa de gamma (GDI)** | brilho, contraste, gamma, temperatura, balanço de branco, bloqueio de luz azul | **qualquer GPU**, por monitor | vale até em jogos de tela cheia exclusiva; o Windows limita a faixa (veja abaixo) |
-| **Matriz de cor (Magnification API)** | **saturação**, matiz, inversão | **qualquer PC, até só com vídeo integrado** | efeito global (não por monitor); não alcança tela cheia exclusiva |
-| **NVIDIA (NVAPI)** | vibrance (DVC), matiz | só NVIDIA | carregada em tempo de execução |
-| **AMD (ADL)** | saturação, matiz | só AMD | carregada em tempo de execução |
-| **DDC/CI** | brilho, contraste e **ganho RGB** no hardware do monitor, além de entrada, predefinição de cor e energia | monitores externos compatíveis | lento; fila com intervalo mínimo para poupar a EEPROM |
-| **Nível de branco SDR** | **brilho em tela com HDR ligado**, onde a rampa não vale | Windows 10 1803+, por monitor | governa o conteúdo SDR; filme e jogo em HDR mantêm o brilho próprio |
-| **Backlight (WMI)** | brilho físico da tela interna | notebooks e all-in-ones | usa os degraus que o painel declara; casa a instância do WMI com o monitor certo |
-| **Sobreposição** | escurecer além do mínimo do painel | qualquer PC | lava o contraste; aparece em capturas de tela |
+| **Gamma ramp (GDI)** | brightness, contrast, gamma, temperature, white balance, blue light reduction | **any GPU**, per monitor | works even in exclusive-fullscreen games; Windows restricts the range (see below) |
+| **Color matrix (Magnification API)** | **saturation**, hue, inversion | **any PC, integrated graphics included** | global effect (not per monitor); does not reach exclusive fullscreen |
+| **NVIDIA (NVAPI)** | vibrance (DVC), hue | NVIDIA only | loaded at runtime |
+| **AMD (ADL)** | saturation, hue | AMD only | loaded at runtime |
+| **DDC/CI** | brightness, contrast and **RGB gain** in the monitor hardware, plus input, color preset and power | compatible external monitors | slow; queued with a minimum interval to spare the EEPROM |
+| **SDR white level** | **brightness on an HDR-enabled display**, where the ramp does not apply | Windows 10 1803+, per monitor | governs SDR content; HDR video and games keep their own brightness |
+| **Backlight (WMI)** | physical brightness of the internal panel | laptops and all-in-ones | uses the steps the panel declares; matches the WMI instance to the right monitor |
+| **Overlay** | dimming below the panel minimum | any PC | washes out contrast; appears in screenshots |
 
-Veja o que a sua máquina suporta com `zdisplay.exe --diag` ou na aba **Diagnóstico**.
+See what your machine supports with `zdisplay.exe --diag` or in the
+**Diagnostics** tab (*Diagnóstico*).
 
-A aba lista, **para cada monitor**, quem cuida de quê — e, quando um controle não
-funciona ali, o motivo. É a resposta para a pergunta que aparece na prática, *"por
-que esta barra não faz nada nesta tela?"*:
+The tab lists, **for each monitor**, what handles what — and, when a control
+does not work there, why. It answers the question that actually comes up:
+*"why does this slider do nothing on this screen?"*
 
 ```
 AOC FTV (DISPLAY1)
@@ -66,539 +73,571 @@ AOC FTV (DISPLAY1)
     brilho físico: indisponível (este monitor não respondeu a DDC/CI)
 ```
 
-### Monitor genérico, sem marca, com firmware ruim
+That output is the program's own, so it is in Portuguese today. It reads:
+brightness, contrast, gamma, temperature and shadows are handled by the gamma
+ramp; saturation, vibrance and hue by AMD (ADL) plus the color matrix; hardware
+brightness is unavailable, because this monitor did not answer DDC/CI.
 
-A API de alto nível do Windows (`GetMonitorBrightness`/`SetMonitorBrightness`)
-valida a string de capacidades do monitor **antes** de falar com ele. Painel
-barato costuma trazer essa string truncada, malformada ou ausente — e aí a API
-recusa mesmo quando o monitor obedeceria. O Zdisplay tenta o caminho de alto nível
-primeiro e, quando ele recusa, **fala VCP direto** com o painel. Um monitor que
-não responde nem assim aparece como "sem suporte" em vez de sumir da lista.
+### Generic, unbranded monitors with poor firmware
 
-O ganho RGB por hardware (VCP `0x16`/`0x18`/`0x1A`) é sondado lendo o próprio
-registrador, não perguntando pelas capacidades. Ele entra como caminho de
-temperatura de cor quando a rampa de gamma não vale — que é o caso de tela com
-**HDR ligado**, onde `SetDeviceGammaRamp` devolve sucesso e não muda um pixel.
+The Windows high-level API (`GetMonitorBrightness` / `SetMonitorBrightness`)
+validates the monitor's capability string **before** talking to it. Cheap panels
+often report that string truncated, malformed or missing — and the API then
+refuses, even when the monitor would have obeyed. Zdisplay tries the high-level
+path first and, when it refuses, **speaks VCP directly** to the panel. A monitor
+that does not respond even then is shown as "unsupported" rather than vanishing
+from the list.
 
-### Identidade do monitor
+Hardware RGB gain (VCP `0x16` / `0x18` / `0x1A`) is probed by reading the
+register itself, not by asking for capabilities. It becomes the color
+temperature path when the gamma ramp does not apply — which is the case on an
+**HDR-enabled** display, where `SetDeviceGammaRamp` returns success without
+changing a single pixel.
 
-A chave de cada monitor sai do **EDID** (fabricante + modelo + número de série),
-não do caminho de dispositivo. O caminho carrega o número da porta em que o cabo
-está: trocar de saída da placa fazia o ajuste próprio daquele monitor
-desaparecer. Configurações gravadas no formato antigo são migradas sozinhas.
+### Monitor identity
 
-O EDID também dá o nome real do painel em vez de "Generic PnP Monitor", e as
-coordenadas de gamut — é o que explica um monitor barato de gamut largo estourar
-as cores sem que nada esteja errado no Zdisplay.
+Each monitor's key comes from its **EDID** (manufacturer + model + serial
+number), not from the device path. The path carries the number of the port the
+cable is plugged into, so moving to a different output on the card would make
+that monitor's own settings disappear. Configurations written in the old format
+are migrated automatically.
 
-### Duas placas de vídeo na mesma máquina
+The EDID also provides the panel's real name instead of "Generic PnP Monitor",
+and the gamut coordinates — which is what explains a cheap wide-gamut monitor
+oversaturating without anything being wrong in Zdisplay.
 
-Em notebook híbrido a tela costuma estar pendurada na Intel mesmo havendo uma
-NVIDIA na máquina. O Zdisplay descobre qual placa dirige cada tela
-(`DISPLAYCONFIG_ADAPTER_NAME`) e só usa o caminho do fabricante onde ele
-realmente vale. Antes, a NVAPI aceitava o comando e devolvia sucesso sem mudar
-nada — falha silenciosa, a pior espécie.
+### Two graphics adapters in one machine
 
-Intel não expõe vibrance por driver como NVIDIA e AMD; nessas máquinas a
-saturação vai pela matriz de cor universal, e o diagnóstico diz isso em vez de
-deixar a barra parecer quebrada.
+On a hybrid laptop the display is usually driven by the Intel adapter even when
+an NVIDIA one is present. Zdisplay determines which adapter drives each display
+(`DISPLAYCONFIG_ADAPTER_NAME`) and uses the vendor path only where it actually
+applies. Otherwise the vendor API accepts the command and reports success
+without changing anything — a silent failure, the worst kind.
 
----
-
-## Bloqueio de luz azul
-
-Uma barra na aba **Ajustes**, guardada em cada perfil como qualquer outro ajuste.
-Existe separada da temperatura de propósito: a temperatura desloca o branco
-inteiro, então quem só quer cortar azul acaba tendo que escolher um Kelvin que
-também mexe no vermelho — e depois não sabe dizer quanto de azul sobrou. Aqui o
-número da barra é a resposta direta a *quanto de azul estou cortando*.
-
-Corta o azul e, mais de leve, o verde; o vermelho não se mexe. No máximo sobra
-15% do azul — zerar o canal apagaria toda distinção entre os tons de azul da
-imagem, e o piso de luz teria de desfazer o ajuste logo em seguida.
-
-A barra entra na conta do piso de luz como qualquer outro campo: nenhuma
-combinação de bloqueio, brilho e temperatura consegue furá-lo, e isso é testado.
-
-É a versão manual e por perfil do que a aba **Visão** faz sozinha pelo relógio —
-as duas convivem, e a camada de visão nunca desfaz o que o perfil pediu.
+Intel does not expose driver-level vibrance the way NVIDIA and AMD do; on those
+machines saturation goes through the universal color matrix, and the diagnostics
+say so instead of letting the slider look broken.
 
 ---
 
-## Aba Visão — conforto para os olhos, em uma chave
+## Blue light reduction
 
-Uma chave e quatro números. A tela vai esquentando sozinha conforme o sol se põe e
-volta ao normal de manhã, **por cima de qualquer perfil** — não é preciso criar
-perfil nem regra de horário para isso.
+A slider in the **Settings** tab (*Ajustes*), stored in each profile like any
+other adjustment. It exists separately from color temperature on purpose:
+temperature shifts the whole white point, so someone who only wants to cut blue
+ends up choosing a Kelvin value that also moves red — and then cannot say how
+much blue is left. Here the slider's number answers *how much blue am I cutting*
+directly.
 
-| Campo | O que faz |
+It cuts blue and, more gently, green; red does not move. At maximum, 15% of blue
+remains — zeroing the channel would erase every distinction between the blue
+tones in the image, and the light floor would have to undo the adjustment
+immediately afterwards.
+
+The slider counts toward the light floor like every other field: no combination
+of blue reduction, brightness and temperature can break through it, and that is
+tested.
+
+It is the manual, per-profile version of what the **Vision** tab (*Visão*) does
+automatically by the clock — the two coexist, and the vision layer never undoes
+what the profile asked for.
+
+---
+
+## The Vision tab — eye comfort, in one switch
+
+One switch and four numbers. The screen warms up on its own as the sun sets and
+returns to normal in the morning, **on top of any profile** — no need to create
+a profile or a schedule rule for it.
+
+| Field | What it does |
 |---|---|
-| **Temperatura de dia** | 6500 K é o branco neutro. |
-| **Temperatura de noite** | 3400 K é a cor de lâmpada incandescente. Quanto menor, menos azul chegando aos olhos. |
-| **Brilho de noite** | % do que o perfil pede. Vale tanto quanto a cor: o que cansa a vista é a tela estar muito mais clara que o ambiente. |
-| **Suavidade da passagem** | Minutos. A mudança acontece aos poucos **em torno** do horário, metade antes e metade depois. Uma hora já não dá para perceber. |
-| **A noite / o dia começa** | Relógio (`22:00`) ou o próprio sol: `por`, `nascer`, `por-30`, `nascer+45`. |
-| **Pausa para os olhos** | A cada N minutos, um aviso discreto na bandeja para olhar 20 segundos para algo a uns 6 metros. |
+| **Day temperature** | 6500 K is neutral white. |
+| **Night temperature** | 3400 K is incandescent-lamp color. The lower it is, the less blue reaches your eyes. |
+| **Night brightness** | % of what the profile asks for. It matters as much as color: what tires the eyes is the screen being much brighter than the room. |
+| **Transition smoothness** | Minutes. The change happens gradually **around** the time, half before and half after. An hour is already imperceptible. |
+| **Night / day begins** | A clock time (`22:00`) or the sun itself: `por`, `nascer`, `por-30`, `nascer+45`. |
+| **Eye break** | Every N minutes, a discreet tray reminder to look at something about 6 metres away for 20 seconds. |
 
-A camada **nunca vai contra o que você escolheu**: se o perfil ativo já pede algo
-mais quente ou mais escuro que o alvo da noite, o perfil manda. Ela só puxa na
-direção do conforto.
+The layer **never works against what you chose**: if the active profile already
+asks for something warmer or darker than the night target, the profile wins. It
+only pulls toward comfort.
 
-Os botões *Ver como fica* mostram o resultado enquanto você os segura — escolher a
-temperatura da noite sem ver como fica seria adivinhação.
+The *preview* buttons show the result while you hold them — choosing a night
+temperature without seeing it would be guesswork.
 
-**Sobre o que ajuda de verdade:** a redução de azul à noite tem evidência para
-*sono*, não para cansaço visual. O que a literatura clínica realmente recomenda
-contra fadiga visual de tela é a pausa 20-20-20 — por isso ela está aqui, e por
-isso o campo de brilho noturno existe: a diferença entre a tela e o ambiente pesa
-mais que a cor.
+**On what actually helps:** reducing blue at night has evidence for *sleep*, not
+for eye strain. What the clinical literature actually recommends against screen
+fatigue is the 20-20-20 break — which is why it is here, and why the night
+brightness field exists: the difference between the screen and the room matters
+more than the color.
 
 ---
 
-## Visão nas sombras
+## Shadow detail (black equalizer)
 
-Duas barras na aba **Ajustes** para o problema de enxergar o que está no escuro —
-o canto sem luz do mapa, a sala mal iluminada do filme — **sem lavar o resto da
-imagem**. É o que os monitores de jogo vendem como *Black eQualizer* ou *Shadow
-Boost*, feito por software e em qualquer monitor.
+Two sliders in the **Settings** tab for the problem of seeing what is in the
+dark — the unlit corner of the map, the dim room in a film — **without washing
+out the rest of the image**. It is what gaming monitors sell as *Black
+eQualizer* or *Shadow Boost*, done in software and on any monitor.
 
-| Barra | O que faz |
+| Slider | What it does |
 |---|---|
-| **Sombras** (0–100) | levanta o piso do preto com um peso que **morre antes dos tons médios** |
-| **Definição** (0–100) | afasta os tons quase pretos uns dos outros, devolvendo o detalhe que o levante achataria |
+| **Shadows** (0–100) | raises the black floor with a weight that **dies out before the midtones** |
+| **Clarity** (0–100) | pushes near-black tones apart from each other, restoring the detail the lift would flatten |
 
-**Por que duas e não uma.** Subir brilho ou gamma clareia a imagem inteira: o
-escuro aparece, mas os médios perdem corpo e os claros estouram. Restringir o
-efeito à parte baixa da curva resolve isso — só que quem levanta o piso achata a
-inclinação perto do preto, e tons vizinhos viram o mesmo tom. O detalhe some
-justamente onde você queria vê-lo. A segunda barra devolve essa inclinação.
+**Why two and not one.** Raising brightness or gamma lightens the entire image:
+the dark appears, but the midtones lose body and the highlights blow out.
+Restricting the effect to the low end of the curve solves that — except that
+raising the floor flattens the slope near black, and neighbouring tones collapse
+into the same value. The detail disappears exactly where you went looking for
+it. The second slider restores that slope.
 
-Medindo nos 32 tons mais escuros, quantos continuam **distintos** entre si:
+Measuring across the 32 darkest tones, how many remain **distinct** from one
+another:
 
-| Ajuste | Tons distintos | Tom 0 vira |
+| Setting | Distinct tones | Tone 0 becomes |
 |---|---|---|
-| neutro | 32 / 32 | 0 |
-| Sombras 100 sozinha | 20 / 32 | 40 |
-| Sombras 100 + Definição 100 | **29 / 32** | 40 |
-| Sombras 78 + Definição 65 | 27 / 32 | 31 |
+| neutral | 32 / 32 | 0 |
+| Shadows 100 alone | 20 / 32 | 40 |
+| Shadows 100 + Clarity 100 | **29 / 32** | 40 |
+| Shadows 78 + Clarity 65 | 27 / 32 | 31 |
 
-E o que acontece com o resto da imagem em **Sombras 78 + Definição 65**:
+And what happens to the rest of the image at **Shadows 78 + Clarity 65**:
 
-| Tom de entrada | 4 | 10 | 40 | 80 | 128 | 180 | 220 | 255 |
+| Input tone | 4 | 10 | 40 | 80 | 128 | 180 | 220 | 255 |
 |---|---|---|---|---|---|---|---|---|
-| Tom de saída | 35 | **41** | 64 | 89 | 129 | 180 | 220 | 255 |
+| Output tone | 35 | **41** | 64 | 89 | 129 | 180 | 220 | 255 |
 
-O tom 10 — invisível na prática — vira 41. O tom 128 anda um ponto. De 180 para
-cima **nada muda**: brancos, céu e interface ficam exatamente onde estavam.
+Tone 10 — invisible in practice — becomes 41. Tone 128 moves by one point. From
+180 upward **nothing changes**: whites, sky and interface stay exactly where
+they were.
 
-Como tudo isso vai pela **rampa de gamma**, vale também dentro de jogos em tela
-cheia exclusiva, sem sobreposição, sem custo de CPU e sem aparecer em capturas.
+Because all of this goes through the **gamma ramp**, it also applies inside
+exclusive-fullscreen games, with no overlay, no CPU cost, and without appearing
+in screenshots.
 
-O perfil pronto **Competitivo** já vem com Sombras 78 / Definição 65, e o perfil
-**Jogo** ganhou uma dose leve (40 / 30).
+The built-in **Competitivo** profile ships with Shadows 78 / Clarity 65, and the
+**Jogo** profile gets a light dose (40 / 30).
 
-### O que estas barras não são
+### What these sliders are not
 
-- **Não são nitidez de contorno.** Nitidez de verdade compara cada pixel com os
-  vizinhos, e a rampa de gamma é uma tabela de 256 entradas que não enxerga
-  vizinhança nenhuma — só o tom. Fazer isso exigiria capturar e reprocessar a tela
-  quadro a quadro, o que custa GPU, atrasa a imagem e não funciona em tela cheia
-  exclusiva. O que a **Definição** faz é contraste nos tons baixos, que é o que
-  realmente traz o detalhe escuro de volta.
-- **Cores escuras perdem um pouco de saturação.** A tabela é por canal e trata
-  cada um sem saber dos outros, então somar o mesmo piso a R, G e B aproxima os
-  três — e aproximar é desbotar. Se incomodar, compense com +5 a +10 em
-  **Saturação**.
-- **A janela mais forte ainda ganha 3 tons de 32 em fusão**, por causa dos 8 bits
-  do sinal. É o preço de esticar a parte baixa da curva; não tem como zerar numa
-  tabela de tons.
+- **They are not edge sharpening.** Real sharpening compares each pixel with its
+  neighbours, and the gamma ramp is a 256-entry table that cannot see any
+  neighbourhood at all — only the tone. Doing that would require capturing and
+  reprocessing the screen frame by frame, which costs GPU time, adds latency and
+  does not work in exclusive fullscreen. What **Clarity** does is low-tone
+  contrast, which is what actually brings dark detail back.
+- **Dark colors lose a little saturation.** The table is per channel and treats
+  each one without knowing the others, so adding the same floor to R, G and B
+  brings the three closer together — and closer means washed out. If it bothers
+  you, compensate with +5 to +10 on **Saturation**.
+- **The strongest setting still merges 3 tones out of 32**, because of the
+  8 bits in the signal. That is the price of stretching the low end of the
+  curve; it cannot be reduced to zero in a tone table.
 
 ---
 
-## Compilar
+## Building
 
-Precisa apenas de um compilador C++ (MinGW-w64). Se você não tiver, o script baixa
-um portátil sozinho, sem instalação e sem admin.
+All you need is a C++ compiler (MinGW-w64). If you have none, the script
+downloads a portable one itself — no installation, no administrator rights.
 
 ```bash
 build.bat
 ```
 
-Ou, com `make` no PATH:
+Or, with `make` on your `PATH`:
 
 ```bash
 make
 ```
 
-O ícone é desenhado pelo próprio programa (`zdisplay.exe --make-icon`) — não há
-dependência de nenhuma ferramenta gráfica.
+The icon is drawn by the program itself (`zdisplay.exe --make-icon`) — there is
+no dependency on any graphics tool.
 
-### Gerar o instalador
+### Building the installer
 
 ```bash
 build.bat setup
 ```
 
-O resultado é `zdisplay-setup.exe`, um instalador visual e autocontido. Ele
-instala por usuário em `%LOCALAPPDATA%\Programs\Zdisplay`, cria o atalho do menu
-Iniciar, registra o Zdisplay em **Aplicativos instalados** e inclui o
-desinstalador. Não pede administrador. O executável incorporado é validado por
-CRC-32, SHA-256 e estrutura PE x64 antes de qualquer arquivo ser gravado.
+The result is `zdisplay-setup.exe`, a self-contained graphical installer. It
+installs per user in `%LOCALAPPDATA%\Programs\Zdisplay`, creates the Start menu
+shortcut, registers Zdisplay in **Installed apps** and includes the uninstaller.
+It never asks for administrator rights. The embedded executable is validated by
+CRC-32, SHA-256 and PE x64 structure before a single file is written.
 
-## Usar
+## Using it
 
 ```bash
 zdisplay.exe
 ```
 
-Clique duas vezes no ícone da bandeja para abrir as configurações; clique do meio
-pausa e restaura a tela na hora.
+Double-click the tray icon to open the settings; middle-click pauses and
+restores the screen immediately.
 
-### Linha de comando
+### Command line
 
-Com o Zdisplay já rodando, qualquer chamada vira um comando para a instância aberta —
-serve para scripts, Stream Deck, AutoHotkey ou atalhos do Windows.
+With Zdisplay already running, any invocation becomes a command to the running
+instance — useful for scripts, Stream Deck, AutoHotkey or Windows shortcuts.
 
 ```bash
-zdisplay.exe --profile "Jogo"      # ativa um perfil
-zdisplay.exe --brightness 70       # brilho por software (10..150)
-zdisplay.exe --saturation 130      # saturação (0..200)
-zdisplay.exe --vibrance 60         # vibrance da GPU (0..100)
-zdisplay.exe --temperature 3400    # temperatura de cor em Kelvin
-zdisplay.exe --shadows 78          # levanta só os tons escuros (0..100)
-zdisplay.exe --clarity 65          # detalhe nas sombras (0..100)
-zdisplay.exe --hwbrightness 40     # brilho físico do monitor (DDC/CI)
-zdisplay.exe --dim 25              # escurecimento extra por sobreposição
-zdisplay.exe --auto                # volta ao modo automático
-zdisplay.exe --toggle              # pausa / retoma
-zdisplay.exe --reset               # devolve a tela ao estado original
-zdisplay.exe --panic               # EMERGÊNCIA: devolve a tela e pausa
-zdisplay.exe --status              # imprime o estado atual
-zdisplay.exe --diag                # imprime os backends detectados
-zdisplay.exe --list                # lista os perfis
-zdisplay.exe --aba 5               # abre numa aba: 0 Ajustes, 1 Visão, 2 Perfis,
-                                   #   3 Automação, 4 Sistema, 5 Diagnóstico
+zdisplay.exe --profile "Jogo"      # activate a profile (built-in name: "Game")
+zdisplay.exe --brightness 70       # software brightness (10..150)
+zdisplay.exe --saturation 130      # saturation (0..200)
+zdisplay.exe --vibrance 60         # GPU vibrance (0..100)
+zdisplay.exe --temperature 3400    # color temperature in Kelvin
+zdisplay.exe --shadows 78          # raise only the dark tones (0..100)
+zdisplay.exe --clarity 65          # shadow detail (0..100)
+zdisplay.exe --hwbrightness 40     # monitor hardware brightness (DDC/CI)
+zdisplay.exe --dim 25              # extra dimming via overlay
+zdisplay.exe --auto                # back to automatic mode
+zdisplay.exe --toggle              # pause / resume
+zdisplay.exe --reset               # return the screen to its original state
+zdisplay.exe --panic               # EMERGENCY: restore the screen and pause
+zdisplay.exe --status              # print the current state
+zdisplay.exe --diag                # print the detected backends
+zdisplay.exe --list                # list the profiles
+zdisplay.exe --aba 5               # open on a tab: 0 Settings, 1 Vision,
+                                   #   2 Profiles, 3 Automation, 4 System,
+                                   #   5 Diagnostics
 zdisplay.exe --quit
 ```
 
-Os comandos que ajustam um valor (`--brightness`, `--saturation`, …) mexem no
-valor **global** do perfil. Monitores com ajuste próprio mantêm o que você
-configurou para eles — a resposta diz quantos ficaram de fora. Para mexer num
-monitor específico, use a janela.
+The commands that set a value (`--brightness`, `--saturation`, …) change the
+profile's **global** value. Monitors with their own override keep what you
+configured for them — the response tells you how many were left out. To change a
+specific monitor, use the window.
 
-Chamado de um terminal, ele escreve a resposta no terminal; fora dele, mostra uma
-caixa de diálogo. `zdisplay.exe --help` lista tudo.
+Called from a terminal, it writes the response to the terminal; outside one, it
+shows a dialog. `zdisplay.exe --help` lists everything.
 
-### Atalhos globais (padrão)
+### Global hotkeys (defaults)
 
-| Atalho | Ação |
+| Hotkey | Action |
 |---|---|
-| `Ctrl+Alt+↑` / `↓` | brilho |
-| `Ctrl+Alt+→` / `←` | saturação |
-| `Ctrl+Alt+K` | pausar / retomar |
-| `Ctrl+Alt+P` | abrir a janela |
-| `Ctrl+Alt+Shift+K` | **emergência**: devolve a tela e pausa |
+| `Ctrl+Alt+↑` / `↓` | brightness |
+| `Ctrl+Alt+→` / `←` | saturation |
+| `Ctrl+Alt+K` | pause / resume |
+| `Ctrl+Alt+P` | open the window |
+| `Ctrl+Alt+Shift+K` | **emergency**: restore the screen and pause |
 
-Configuráveis na aba **Sistema**, e cada perfil pode ter o seu.
+Configurable in the **System** tab (*Sistema*), and each profile can have its
+own.
 
-### Perfis e automação
+### Profiles and automation
 
-Um perfil guarda todos os ajustes, com sobrescrita opcional **por monitor**. Seis
-vêm prontos: Padrão, Jogo, Competitivo, Noite, Filme e Leitura.
+A profile stores every adjustment, with optional **per-monitor** overrides. Six
+ship built in: Padrão, Jogo, Competitivo, Noite, Filme and Leitura (Default,
+Game, Competitive, Night, Film, Reading).
 
-A escolha do perfil segue esta prioridade:
+Profile selection follows this priority:
 
-1. perfil fixado à mão (bandeja, janela ou atalho);
-2. **regra por aplicativo** — o Zdisplay usa `SetWinEventHook` para saber qual
-   programa está em foco, sem laço de verificação, então o custo parado é zero;
-3. **regra por horário** (aceita faixas que cruzam a meia-noite);
-4. perfil padrão.
+1. a profile pinned by hand (tray, window or hotkey);
+2. a **per-application rule** — Zdisplay uses `SetWinEventHook` to know which
+   program is in the foreground, with no polling loop, so the idle cost is zero;
+3. a **schedule rule** (ranges may cross midnight);
+4. the default profile.
 
-Os campos *Início* e *Fim* de uma regra de horário aceitam relógio (`22:00`) ou o
-**próprio sol**: `por`, `nascer`, e com deslocamento como `por-30` ou
-`nascer+45`. O horário do pôr do sol anda mais de duas horas ao longo do ano,
-então uma faixa fixa fica errada em metade dos meses. Para isso funcionar,
-preencha *Latitude* e *Longitude* na mesma aba — sem localização, uma regra solar
-simplesmente não casa, em vez de trocar o perfil no horário de um lugar onde você
-não está.
+A schedule rule's *start* and *end* fields accept a clock time (`22:00`) or the
+**sun itself**: `por` (sunset), `nascer` (sunrise), and with an offset such as
+`por-30` or `nascer+45`. Sunset moves by more than two hours over the year, so a
+fixed range is wrong for half the months. For this to work, fill in *Latitude*
+and *Longitude* in the same tab — without a location, a solar rule simply does
+not match, rather than switching profiles at the time of a place you are not in.
 
-Dentro de cada nível, quem tem **prioridade** maior ganha — tanto nas regras por
-aplicativo quanto nas de horário, para duas faixas que se sobrepõem terem um
-desempate explícito em vez de depender da ordem das linhas no arquivo.
+Within each level, the higher **priority** wins — for both application and
+schedule rules — so that two overlapping ranges have an explicit tiebreak
+instead of depending on line order in the file.
 
-**Não é preciso saber o nome do executável.** O campo *Processo*, na aba
-**Automação**, é uma lista com os programas que você tem abertos agora — a mesma
-lista do Alt+Tab, reenumerada toda vez que você abre o menu. Escolha e pronto. O
-campo continua aceitando texto digitado, para programas que não estão rodando no
-momento e para curingas: `cs*` pega `cs2` e `csgo`. O botão **Usar o programa em
-foco** continua ali para o caso do jogo em tela cheia, que some da lista enquanto
-você está na janela do Zdisplay.
+**You do not need to know the executable's name.** The *Process* field, in the
+**Automation** tab (*Automação*), is a list of the programs you currently have
+open — the same list as Alt+Tab, re-enumerated every time you open the menu.
+Pick one and you are done. The field still accepts typed text, for programs that
+are not running at the moment and for wildcards: `cs*` matches `cs2` and `csgo`.
+The **use the foreground program** button is still there for the fullscreen-game
+case, which disappears from the list while you are in the Zdisplay window.
 
-As trocas são suavizadas quadro a quadro. Comandos lentos de hardware (DDC/CI e
-backlight) só são enviados no valor final, nunca durante a transição.
+Transitions are smoothed frame by frame. Slow hardware commands (DDC/CI and
+backlight) are sent only at the final value, never during the transition.
 
-**Teclas de brilho do teclado.** Num notebook acoplado, as teclas de brilho só
-mexem no painel de dentro e as duas telas ficam desencontradas. Com *Teclas de
-brilho também valem nos monitores externos* ligado (aba **Sistema**), o Zdisplay
-percebe a mudança e leva o mesmo valor aos monitores externos por DDC/CI. Um
-perfil que já gerencia o brilho físico continua mandando: nesse caso o
-espelhamento não entra, para os dois não brigarem.
+**Keyboard brightness keys.** On a docked laptop, the brightness keys only move
+the internal panel and the two screens end up mismatched. With *brightness keys
+also apply to external monitors* enabled (**System** tab), Zdisplay notices the
+change and carries the same value to external monitors over DDC/CI. A profile
+already managing hardware brightness still wins: in that case mirroring stays
+out of the way, so the two do not fight.
 
-### Configuração
+### Configuration
 
-Arquivo INI legível e editável à mão, gravado de forma atômica:
+A readable, hand-editable INI file, written atomically:
 
 ```
 %APPDATA%\Zdisplay\zdisplay.ini
 ```
 
-**Modo portátil:** crie um arquivo vazio chamado `zdisplay-portable.txt` ao lado do
-executável e tudo passa a ser gravado na mesma pasta — nada no registro (a não ser
-que você ligue o início automático), nada em `%APPDATA%`.
+**Portable mode:** create an empty file named `zdisplay-portable.txt` next to
+the executable and everything is written to that same folder — nothing in the
+registry (unless you enable autostart), nothing in `%APPDATA%`.
 
 ---
 
-## Proteções
+## Safeguards
 
-O programa mexe na tela inteira. Se um ajuste der errado, o usuário pode ficar sem
-enxergar o suficiente para desfazê-lo — então as proteções abaixo existem para que
-isso nunca aconteça.
+The program drives the entire screen. If an adjustment goes wrong, the user may
+not be able to see well enough to undo it — so the safeguards below exist to
+make sure that never happens.
 
-**O reset devolve a *sua* tela, não uma tela "neutra".** Ao iniciar, o Zdisplay lê e
-guarda em `baseline.dat` a rampa de gamma de cada monitor, o brilho e o contraste
-físicos (DDC/CI), o backlight do notebook e o vibrance que já estava no painel da
-GPU. O reset restaura exatamente esses valores. Se o monitor tem calibração ICC,
-ela é **preservada**: os ajustes passam a ser aplicados *por cima* da calibração,
-com interpolação para não criar faixas de cor.
+**Reset restores *your* screen, not a "neutral" one.** At startup Zdisplay reads
+and stores in `baseline.dat` each monitor's gamma ramp, its physical brightness
+and contrast (DDC/CI), the laptop backlight, and the vibrance already set in the
+GPU panel. Reset restores exactly those values. If the monitor has an ICC
+calibration, it is **preserved**: adjustments are applied *on top of* the
+calibration, with interpolation to avoid banding.
 
-**Recuperação depois de um travamento.** Enquanto roda, existe um arquivo
-`session.lock`. Se ele ainda estiver lá no arranque seguinte, a execução anterior
-não terminou direito — e o Zdisplay devolve a tela ao estado guardado antes de
-qualquer outra coisa. Nem um desligamento na tomada deixa a tela presa num ajuste.
+**Recovery after a crash.** While running, a `session.lock` file exists. If it
+is still there at the next startup, the previous run did not end cleanly — and
+Zdisplay restores the screen to the stored state before doing anything else. Not
+even pulling the plug leaves the screen stuck on an adjustment.
 
-**Confirmação com reversão automática.** Quando os ajustes deixam a tela escura
-demais (menos de 20% de luz estimada), aparece uma janela com contagem regressiva
-de 15 segundos. Não fazer nada desfaz o ajuste — é o mesmo desenho que o Windows
-usa ao trocar a resolução, e funciona justamente no caso em que o usuário não
-consegue enxergar o botão. Se o Zdisplay abrir já num estado escuro, o ponto de
-retorno passa a ser o neutro.
+**Confirmation with automatic revert.** When the adjustments make the screen too
+dark (less than 20% estimated light), a window appears with a 15-second
+countdown. Doing nothing undoes the adjustment — the same design Windows uses
+when changing resolution, and it works precisely in the case where the user
+cannot see the button. If Zdisplay starts up already in a dark state, the revert
+point becomes neutral.
 
-**Atalho de emergência: `Ctrl+Alt+Shift+K`.** Devolve a tela e pausa, de qualquer
-lugar do Windows. Apagar esse campo nas configurações não o desativa — o padrão
-volta sozinho. Também disponível como `zdisplay.exe --panic` e no menu da bandeja.
+**Emergency hotkey: `Ctrl+Alt+Shift+K`.** Restores the screen and pauses, from
+anywhere in Windows. Clearing that field in the settings does not disable it —
+the default comes back. Also available as `zdisplay.exe --panic` and in the tray
+menu.
 
-**Piso absoluto de luz.** Nenhum caminho de entrada — arquivo editado à mão, linha
-de comando, perfil importado de outra máquina — consegue produzir menos de 8% de
-luz. Valores fora da faixa, `NaN` e infinito são corrigidos na leitura.
+**Absolute light floor.** No input path — a hand-edited file, the command line,
+a profile imported from another machine — can produce less than 8% light.
+Out-of-range values, `NaN` and infinity are corrected on read.
 
-A luz que sobra é **medida sobre a curva que vai para a tela**, e não estimada
-por uma fórmula à parte: brilho, contraste, gamma, temperatura, balanço de branco
-e visão nas sombras entram todos na conta, com os pesos Rec.709. Isso importa
-porque cada um deles escurece de verdade — gamma 0,30 com os ganhos em 50 e a
-temperatura em 1500 K deixa a tela quase preta sem que a barra de brilho saia dos
-100%. Quando a combinação fica abaixo do piso, o Zdisplay afrouxa na ordem em que
-menos custa: primeiro a sobreposição, depois o brilho físico, o brilho por
-software, os ganhos, a temperatura, o gamma e por fim o contraste.
+The remaining light is **measured on the curve that goes to the screen**, not
+estimated by a separate formula: brightness, contrast, gamma, temperature, white
+balance and shadow detail all enter the calculation, with Rec.709 weights. That
+matters because each of them genuinely darkens the image — gamma 0.30 with the
+gains at 50 and temperature at 1500 K leaves the screen nearly black without the
+brightness slider ever leaving 100%. When the combination falls below the floor,
+Zdisplay backs off in the order that costs least: first the overlay, then
+hardware brightness, software brightness, the gains, temperature, gamma and
+finally contrast.
 
-**A configuração tem cópia de segurança.** Gravação atômica, `zdisplay.ini.bak` da
-versão anterior, e leitura tolerante: um arquivo estragado cai no backup, e um
-arquivo sem nada de aproveitável é guardado como `.invalido` em vez de ser
-sobrescrito em silêncio.
+**The configuration is backed up.** Atomic writes, a `zdisplay.ini.bak` of the
+previous version, and tolerant reading: a corrupted file falls back to the
+backup, and a file with nothing usable in it is kept as `.invalido` instead of
+being silently overwritten.
 
-**A EEPROM do monitor é poupada.** Comandos DDC/CI passam por fila com intervalo
-mínimo de 140 ms, são unificados quando repetidos, nunca são enviados durante
-transições e têm teto rígido de 40 por minuto por monitor.
+**The monitor's EEPROM is spared.** DDC/CI commands go through a queue with a
+minimum interval of 140 ms, are coalesced when repeated, are never sent during
+transitions, and have a hard ceiling of 40 per minute per monitor.
 
-**Toda alteração no sistema tem volta.** O único ponto que pede administrador é a
-liberação da faixa de gamma, e o mesmo botão desfaz. O início automático usa
-`HKCU\...\Run`, que some junto com o programa.
+**Every system change is reversible.** The only point that asks for
+administrator rights is unlocking the gamma range, and the same button undoes
+it. Autostart uses `HKCU\...\Run`, which disappears along with the program.
 
-## Testes
+## Tests
 
 ```bash
 build.bat test
 ```
 
-Ou, para compilar o programa **e** rodar a suíte na mesma invocação:
+Or, to build the program **and** run the suite in one invocation:
 
 ```bash
 make check
 ```
 
-404 testes que não dependem de hardware — rodam igual em qualquer máquina. Cobrem
-a matemática de cor (5.400 combinações de rampa verificando que ela nunca decresce
-nem apaga a tela), as 441 combinações da curva das sombras, os limites de
-segurança, as regras de aplicativo e horário, a ida e volta da configuração, dez
-arquivos de configuração propositalmente estragados, a gravação do estado original
-e oito configurações de PC simuladas (NVIDIA, AMD, Intel, notebook, máquina
-virtual, quatro monitores, e uma máquina sem nenhum backend disponível).
+404 tests that do not depend on hardware — they run the same on any machine.
+They cover the color math (5,400 ramp combinations verifying that it never
+decreases nor blanks the screen), the 441 combinations of the shadow curve, the
+safety limits, the application and schedule rules, the configuration round trip,
+ten deliberately corrupted configuration files, the recording of the original
+state, and eight simulated PC configurations (NVIDIA, AMD, Intel, laptop,
+virtual machine, four monitors, and a machine with no backend available at all).
 
-Uma seção de **regressões** prende, um a um, os defeitos que a auditoria
-encontrou: o piso de luz furado por temperatura e ganhos, o `NaN` que atravessava
-o `Clamp`, o perfil importado sem saneamento, a descontinuidade da curva de
-temperatura em 6600 K, as sombras engolindo a imagem com brilho baixo, e o
-baseline cortado deixando estado pela metade.
+A **regressions** section pins down, one by one, the defects the audit found:
+the light floor broken through by temperature and gains, the `NaN` that crossed
+`Clamp`, the imported profile that was not sanitized, the discontinuity in the
+temperature curve at 6600 K, the shadows swallowing the image at low brightness,
+and the truncated baseline leaving half a state behind.
 
-O que o hardware publica sobre si mesmo também é testado sem hardware nenhum: o
-**EDID** é montado byte a byte no teste (cabeçalho, checksum, fabricante
-empacotado em 5 bits, primárias sRGB e DCI-P3) e o parser precisa recusar bloco
-truncado, zerado ou com checksum errado — porque aceitar um desses viraria um
-"número de série" inventado, e a chave do ajuste por monitor passaria a apontar
-para o painel errado. A **string de capacidades DDC/CI** é testada com uma
-resposta real, incluindo o caso que mais engana: os números dentro de
-`14(01 05 06)` são os valores aceitos por aquele código, não códigos — e é
-justamente essa lista que decide quais entradas o programa oferece, então ela é
-testada também contra firmware que remove todo o espaço e contra lixo não
-hexadecimal, que chega por I2C e não é dado confiável.
+What the hardware reports about itself is also tested without any hardware: the
+**EDID** is assembled byte by byte in the test (header, checksum, manufacturer
+packed into 5 bits, sRGB and DCI-P3 primaries) and the parser must reject a
+truncated, zeroed or bad-checksum block — because accepting one would invent a
+"serial number", and the per-monitor key would then point at the wrong panel.
+The **DDC/CI capability string** is tested against a real response, including
+the case that misleads most: the numbers inside `14(01 05 06)` are the values
+accepted by that code, not codes themselves — and it is precisely that list that
+decides which inputs the program offers, so it is also tested against firmware
+that strips all whitespace and against non-hexadecimal garbage, which arrives
+over I2C and is not trustworthy data.
 
-A conversão do **nome de instância do WMI** para o caminho canônico do
-dispositivo tem seção própria, porque é o que casa o painel que o WMI comanda com
-o monitor que o resto do programa conhece: dois painéis embutidos do mesmo modelo
-(Zenbook Duo, Yoga Book 9i) precisam continuar distintos, senão o brilho vai para
-a tela errada. As **regras por modelo de monitor** são testadas na ida e na volta
-pelo arquivo, e uma regra com erro de digitação precisa ser recusada em vez de
-virar uma regra vazia que silenciosamente não faz nada.
+Converting a **WMI instance name** to the canonical device path has its own
+section, because that is what matches the panel WMI commands to the monitor the
+rest of the program knows: two built-in panels of the same model must stay
+distinct, or brightness goes to the wrong screen. **Per-monitor-model rules** are
+tested round-tripping through the file, and a rule with a typo must be rejected
+rather than becoming an empty rule that silently does nothing.
 
-O **nascer e o pôr do sol** são conferidos contra os solstícios de São Paulo e de
-Londres (dentro de 5 a 10 minutos), mais as invariantes que pegam troca de sinal:
-dezembro é o dia longo no hemisfério sul e o curto no norte, no equador o dia dura
-pouco mais de 12 h o ano inteiro, e acima do círculo polar a função precisa dizer
-que não há nascer nem pôr em vez de devolver um número.
+**Sunrise and sunset** are checked against the solstices in São Paulo and London
+(within 5 to 10 minutes), plus the invariants that catch a sign flip: December
+is the long day in the southern hemisphere and the short one in the north, at
+the equator the day lasts a little over 12 h all year, and above the polar circle
+the function must report that there is no sunrise or sunset rather than
+returning a number.
 
-## O limite de gamma do Windows
+## The Windows gamma limit
 
-Sem uma alteração no registro, o Windows **recusa** rampas de gamma que se afastem
-demais da linear — e recusa em silêncio. É por isso que programas do gênero às
-vezes "não fazem nada" em combinações fortes (brilho baixo + temperatura quente).
+Without a registry change, Windows **refuses** gamma ramps that deviate too far
+from linear — and refuses silently. That is why programs of this kind sometimes
+"do nothing" in strong combinations (low brightness + warm temperature).
 
-O Zdisplay não finge que funcionou: quando o Windows recusa, ele procura a maior
-fração do efeito que o sistema aceita, aplica essa fração e avisa na barra de
-status e no diagnóstico ("o Windows limitou o efeito a X%"). Ele também tenta
-periodicamente voltar ao efeito integral, caso você libere a faixa.
+Zdisplay does not pretend it worked: when Windows refuses, it searches for the
+largest fraction of the effect the system accepts, applies that fraction and
+says so in the status bar and in the diagnostics ("Windows limited the effect to
+X%"). It also periodically tries to return to the full effect, in case you
+unlock the range.
 
-Isso pesa especialmente na **visão nas sombras**: levantar o piso do preto é, por
-definição, um afastamento grande da linear, então é o ajuste que mais chega ao
-teto do Windows. Ele continua funcionando na fração aceita — só não com a força
-inteira. Se as Sombras parecerem fracas, é quase sempre isso; olhe o aviso no
-diagnóstico antes de culpar a barra.
+This weighs especially on **shadow detail**: raising the black floor is by
+definition a large deviation from linear, so it is the adjustment that most
+often hits the Windows ceiling. It keeps working at the accepted fraction — just
+not at full strength. If Shadows seems weak, this is almost always why; check the
+warning in the diagnostics before blaming the slider.
 
-Para liberar a faixa completa: aba **Sistema → Liberar faixa completa de gamma**.
-Isso grava `GdiIcmGammaRange=256` em
-`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`, exige uma execução como
-administrador e só passa a valer depois de reiniciar a sessão do Windows.
+To unlock the full range: **System** tab → *unlock the full gamma range*. This
+writes `GdiIcmGammaRange=256` to
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM`, requires one run as
+administrator, and only takes effect after restarting the Windows session.
 
-## Outras ressalvas honestas
+## Other honest caveats
 
-- **Luz noturna do Windows** disputa a mesma rampa. O Zdisplay detecta e avisa; o
-  "reforçar ajustes a cada N segundos" (aba Sistema) reafirma os valores quando
-  outro programa sobrescreve.
-- **Jogos em tela cheia exclusiva**: a rampa de gamma e as APIs de fabricante
-  continuam valendo; a matriz universal e a sobreposição, não. Use modo janela sem
-  bordas se precisar da saturação universal dentro do jogo.
-- **HDR ligado** faz o Windows ignorar a rampa de gamma — ele aceita a escrita e
-  não muda um pixel. Nessas telas o brilho vai pelo **nível de branco SDR**, que é
-  a mesma coisa que a barra "Brilho do conteúdo SDR" do Windows move: funciona por
-  tela, sem I2C e sem gravar em EEPROM, e vale em jogo de tela cheia exclusiva.
+- **Windows Night light** competes for the same ramp. Zdisplay detects it and
+  warns; the "reapply adjustments every N seconds" option (System tab)
+  reasserts the values when another program overwrites them.
+- **Exclusive-fullscreen games**: the gamma ramp and the vendor APIs keep
+  working; the universal matrix and the overlay do not. Use borderless windowed
+  mode if you need universal saturation inside the game.
+- **HDR enabled** makes Windows ignore the gamma ramp — it accepts the write and
+  changes nothing. On those displays brightness goes through the **SDR white
+  level**, which is the same thing the Windows "SDR content brightness" slider
+  moves: it works per display, with no I2C and no EEPROM writes, and it applies
+  in exclusive-fullscreen games.
 
-  | Arranjo | O que passa a valer |
+  | Arrangement | What takes over |
   |---|---|
-  | Qualquer tela em HDR | **brilho: nível de branco SDR**, ancorado no valor que a tela já tinha |
-  | Todas as telas em HDR | contraste e temperatura vão pela **matriz de cor** |
-  | HDR em algumas telas | contraste e temperatura ficam sem efeito na tela HDR |
+  | Any display in HDR | **brightness: SDR white level**, anchored to the value the display already had |
+  | All displays in HDR | contrast and temperature go through the **color matrix** |
+  | HDR on some displays | contrast and temperature have no effect on the HDR display |
 
-  No arranjo misto a matriz não pode assumir contraste e temperatura: o efeito
-  dela é da área de trabalho inteira, e as telas sem HDR — que já receberam a
-  rampa — ficariam com o ajuste em dobro. Gamma e visão nas sombras são curvas e
-  não têm equivalente, então continuam sem efeito em tela HDR.
+  In the mixed arrangement the matrix cannot take over contrast and temperature:
+  its effect covers the entire desktop, and the non-HDR displays — which already
+  received the ramp — would get the adjustment twice. Gamma and shadow detail are
+  curves with no equivalent, so they remain without effect on an HDR display.
 
-  O nível de branco SDR governa a área de trabalho e o conteúdo comum. Filme ou
-  jogo em HDR de verdade desenha na faixa HDR e mantém o brilho próprio — não há
-  o que fazer por software nesse caso.
-
-  A detecção usa a consulta de **modo ativo** do Windows 11 24H2, e não só o bit
-  antigo de "cor avançada". A diferença importa: com a Gestão Automática de Cor
-  ligada, o bit antigo fica verdadeiro **com a tela em SDR**, e quem confia nele
-  desliga gamma e sombras sem motivo numa máquina em que eles funcionam.
-- **DDC/CI** grava na EEPROM do monitor. O Zdisplay limita a taxa, coalesce pedidos e
-  nunca envia comandos durante transições — e de propósito **não** restaura o
-  brilho físico ao sair, porque esse valor é seu.
-- **Monitores que não seguem o padrão** têm tabela própria. Há painel que responde
-  brilho em outro registrador (e no 0x10 aceita o comando sem mudar nada) e há
-  firmware que derruba o driver de vídeo ao receber DDC/CI. O que já se sabe vem
-  embutido; o resto você acrescenta no arquivo de configuração, por modelo:
+  Detection uses the Windows 11 24H2 **active mode** query, not just the old
+  "advanced color" bit. The difference matters: with Auto Color Management on,
+  the old bit reads true **with the display in SDR**, and anything trusting it
+  disables gamma and shadows for no reason on a machine where they work.
+- **DDC/CI writes to the monitor's EEPROM.** Zdisplay rate-limits, coalesces
+  requests and never sends commands during transitions — and deliberately does
+  **not** restore hardware brightness on exit, because that value is yours.
+- **Monitors that do not follow the standard** have their own table. There are
+  panels that report brightness on a different register (and accept the command
+  on 0x10 without changing anything) and firmware that crashes the display driver
+  on receiving DDC/CI. What is already known ships built in; you add the rest in
+  the configuration file, per model:
 
   ```ini
   [modelo:FUS087C]
   regra=brilho-vcp:6B
   ```
 
-  Aceita `bloquear`, `sem-capacidades` e `brilho-vcp:XX`, e a sua regra manda mais
-  que a embutida — dá para desfazer uma entrada de fábrica que atrapalhe o seu
-  hardware. O identificador é o do EDID (três letras do fabricante + código do
-  produto), visível na aba **Diagnóstico**.
-- **"Detectei" não é "funciona".** O botão *Testar o monitor*, na aba Diagnóstico,
-  muda o brilho um passo, lê de volta, confere e devolve o valor que estava. É o
-  que separa um monitor que obedece de um que aceita o comando, responde sucesso e
-  não muda nada — caso comum o bastante para merecer prova, e impossível de
-  diagnosticar no olho.
+  It accepts `bloquear` (block), `sem-capacidades` (no capabilities) and
+  `brilho-vcp:XX` (brightness VCP register), and your rule outranks the built-in
+  one — so you can undo a factory entry that gets in the way of your hardware.
+  The identifier is the EDID one (three manufacturer letters + product code),
+  visible in the **Diagnostics** tab.
+- **"Detected" is not "works".** The *test the monitor* button, in the
+  Diagnostics tab, changes brightness by one step, reads it back, checks it and
+  restores the previous value. That is what separates a monitor that obeys from
+  one that accepts the command, reports success and changes nothing — common
+  enough to deserve proof, and impossible to diagnose by eye.
 
-## Segurança
+## Security
 
-Sem rede, sem telemetria, sem elevação. O único ponto que pede administrador é o
-botão de liberar a faixa de gamma, e ele é opcional e explicitamente confirmado.
-O início automático usa `HKCU\...\Run`, trivial de desfazer.
+No network, no telemetry, no elevation. The only point that asks for
+administrator rights is the button that unlocks the gamma range, and it is
+optional and explicitly confirmed. Autostart uses `HKCU\...\Run`, trivial to
+undo.
 
-As DLLs de sistema que o Zdisplay carrega em tempo de execução (`nvapi64`,
-`atiadlxx`, `dxva2`, `magnification`) vêm **sempre de System32**, via
-`SetDefaultDllDirectories` mais `LOAD_LIBRARY_SEARCH_SYSTEM32`. Sem isso, o
-diretório do executável precede o do sistema na ordem de busca — e num programa
-portátil, que costuma ser executado de Downloads ou de um pendrive, bastava um
-arquivo com o nome certo ao lado dele para virar execução de código.
+The system DLLs Zdisplay loads at runtime (`nvapi64`, `atiadlxx`, `dxva2`,
+`magnification`) always come from System32, via `SetDefaultDllDirectories` plus
+`LOAD_LIBRARY_SEARCH_SYSTEM32`. Without that, the executable's own directory
+precedes the system one in the search order — and in a portable program, which
+is often run from Downloads or a USB stick, a single file with the right name
+next to it would be enough to become code execution.
 
-O build de release falha se o executável ou o instalador não estiverem marcados
-com DEP, ASLR e ASLR de alta entropia. Em execução, ambos também recusam imagens
-remotas e de baixa integridade. O desinstalador remove somente os arquivos que o
-instalador criou; nunca apaga recursivamente uma pasta escolhida pelo usuário.
+The release build fails if the executable or the installer are not marked with
+DEP, ASLR and high-entropy ASLR. At runtime, both also refuse remote and
+low-integrity images. The uninstaller removes only the files the installer
+created; it never recursively deletes a folder chosen by the user.
 
-A instância única e o canal de comando são **por sessão do Windows**, não por
-máquina: em um PC com dois usuários logados, cada um tem o seu Zdisplay e nenhum
-esbarra no outro.
+The single instance and the command channel are **per Windows session**, not per
+machine: on a PC with two users logged in, each has their own Zdisplay and
+neither interferes with the other.
 
-## Contribuir
+Full policy and reporting channel: [SECURITY.md](SECURITY.md).
 
-Veja [CONTRIBUTING.md](CONTRIBUTING.md) para compilar, rodar a suíte e entender
-as regras que a base de código não abre mão — o piso de luz absoluto, o binário
-sem exceções, todo backend opcional e a proibição de tratar "detectei" como
-"funciona".
+## Contributing
 
-Falha de segurança não vai em issue pública: veja [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for building, running the suite, and the
+rules the codebase does not bend on — the absolute light floor, the
+exception-free binary, every backend being optional, and the ban on treating
+"detected" as "works".
 
-## Estrutura
+Security vulnerabilities do not go in public issues: see
+[SECURITY.md](SECURITY.md).
+
+## Layout
 
 ```
 src/
-  version.h           número de versão, usado pelo .rc e pelo código
-  ui_dpi.h            escala por DPI, compartilhada entre as janelas
-  ui_theme.cpp/.h     tema escuro: paleta, moldura da janela e desenho proprio
-                      dos controles que não aceitam cor por mensagem
-  common.*            utilitários, log, caminhos, carregamento dinâmico de DLL
-  core.*              ajustes, perfis, INI, matemática de cor, monitores
-  backends.h          interface comum e capacidades
-  backends_display.*  rampa de gamma, matriz universal, sobreposição
-  backends_vendor.*   NVAPI (NVIDIA) e ADL (AMD)
-  backends_hw.*       DDC/CI e backlight por WMI
-  engine.*            resolução de perfil, transições, watchdog, recuos
-  services.*          atalhos globais, app em foco, named pipe, início automático
-  ui_*.cpp            bandeja, janela de configuração e eventos
-  icon.cpp            o ícone, desenhado em código
-  main.cpp            entrada, instância única, CLI
+  version.h           version number, used by the .rc and by the code
+  ui_dpi.h            per-DPI scaling, shared between the windows
+  ui_theme.cpp/.h     dark theme: palette, window frame and owner-drawing
+                      for the controls that ignore color messages
+  common.*            utilities, log, paths, runtime DLL loading
+  core.*              adjustments, profiles, INI, color math, monitors
+  backends.h          common interface and capabilities
+  backends_display.*  gamma ramp, universal matrix, overlay
+  backends_vendor.*   NVAPI (NVIDIA) and ADL (AMD)
+  backends_hw.*       DDC/CI and WMI backlight
+  engine.*            profile resolution, transitions, watchdog, fallbacks
+  services.*          global hotkeys, foreground app, named pipe, autostart
+  ui_*.cpp            tray, settings window and events
+  icon.cpp            the icon, drawn in code
+  main.cpp            entry point, single instance, CLI
 ```
 
-Comentários do código são em **inglês**; texto de interface e mensagens de log,
-em **português** — é o idioma de quem usa o programa.
+Code comments are in **English**; interface text and log messages are in
+**Portuguese** — the language of the program's users today.
 
-## Licença
+## Other languages
 
-[GPL-3.0-or-later](LICENSE). Você pode usar, estudar, modificar e redistribuir.
-Se distribuir uma versão modificada, ela precisa vir com o código-fonte e sob a
-mesma licença.
+The program's interface and messages are currently in Portuguese. Translations
+are planned, and the goal is to ship Zdisplay in every language its users speak.
+If you would like to help translate it, [open an
+issue](https://github.com/zuunypro/zdisplay/issues/new/choose) — that
+contribution is as welcome as any code change.
+
+## License
+
+[GPL-3.0-or-later](LICENSE). You may use, study, modify and redistribute it. If
+you distribute a modified version, it must come with its source code and under
+the same license.

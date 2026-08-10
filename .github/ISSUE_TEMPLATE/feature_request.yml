@@ -1,28 +1,28 @@
-name: Sugerir uma mudança
-description: Uma função nova ou uma melhoria em algo que já existe
+name: Suggest a change
+description: A new feature, or an improvement to something that already exists
 labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Que problema isso resolve
+      label: What problem does this solve
       description: >
-        Descreva a situação real, não a solução. O que você estava tentando
-        fazer quando sentiu falta disso?
+        Describe the real situation, not the solution. What were you trying to
+        do when you found this missing?
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: O que você propõe
+      label: What you propose
     validations:
       required: true
 
   - type: textarea
     id: alternatives
     attributes:
-      label: O que você já tentou
-      description: Outro ajuste, outro programa, outro caminho.
+      label: What you have already tried
+      description: Another setting, another program, another approach.
     validations:
       required: false

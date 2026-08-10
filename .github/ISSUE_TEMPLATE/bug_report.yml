@@ -1,28 +1,28 @@
-name: Relatar um problema
-description: Algo não funciona como deveria
+name: Report a problem
+description: Something does not work the way it should
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Falha de **segurança** não vai aqui. Use o canal privado descrito em
-        [SECURITY.md](../blob/main/SECURITY.md).
+        **Security vulnerabilities do not go here.** Use the private channel
+        described in [SECURITY.md](../blob/main/SECURITY.md).
 
   - type: textarea
     id: what
     attributes:
-      label: O que acontece
-      description: E o que você esperava que acontecesse.
+      label: What happens
+      description: And what you expected to happen instead.
     validations:
       required: true
 
   - type: textarea
     id: steps
     attributes:
-      label: Como reproduzir
+      label: How to reproduce
       placeholder: |
-        1. Abrir a aba Ajustes
-        2. Mover a barra de saturação para 130
+        1. Open the Settings tab
+        2. Move the saturation slider to 130
         3. ...
     validations:
       required: true
@@ -30,8 +30,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Versão do Zdisplay
-      description: A primeira linha de `zdisplay.exe --status`.
+      label: Zdisplay version
+      description: The first line of `zdisplay.exe --status`.
       placeholder: "1.0.0.0"
     validations:
       required: true
@@ -39,7 +39,7 @@ body:
   - type: input
     id: windows
     attributes:
-      label: Versão do Windows
+      label: Windows version
       placeholder: "Windows 11 24H2 (26100)"
     validations:
       required: true
@@ -47,11 +47,12 @@ body:
   - type: textarea
     id: diag
     attributes:
-      label: Saída de --diag
+      label: Output of --diag
       description: >
-        Cole a saída de `zdisplay.exe --diag`. Ela lista, por monitor, qual
-        backend cuida de quê e o motivo quando um controle não está disponível.
-        Para problema de monitor, GPU ou brilho, é a informação que resolve.
+        Paste the output of `zdisplay.exe --diag`. It lists, per monitor, which
+        backend handles what and the reason when a control is unavailable. For a
+        monitor, GPU or brightness problem, this is the information that
+        resolves the report.
       render: text
     validations:
       required: false
@@ -59,9 +60,9 @@ body:
   - type: textarea
     id: extra
     attributes:
-      label: Qualquer outra coisa
+      label: Anything else
       description: >
-        Monitor e modelo, se o problema é de hardware. HDR ligado? Luz noturna
-        do Windows ligada? Outro programa de cor rodando junto?
+        Monitor make and model, if the problem is hardware related. Is HDR on?
+        Is Windows Night light on? Is another color tool running alongside?
     validations:
       required: false
