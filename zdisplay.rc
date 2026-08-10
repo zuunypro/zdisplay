@@ -1,0 +1,41 @@
+#include <windows.h>
+#include "src/version.h"
+
+// Manifest: modern common controls, per-monitor DPI awareness, no elevation.
+1 RT_MANIFEST "app.manifest"
+
+// The icon is produced by "zdisplay.exe --make-icon", so the first build runs
+// two passes. ZDISPLAY_HAS_ICON is defined by the build once the file exists.
+#ifdef ZDISPLAY_HAS_ICON
+1 ICON "assets/zdisplay.ico"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     ZDISPLAY_VERSION_COMMA
+PRODUCTVERSION  ZDISPLAY_VERSION_COMMA
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0416 = pt-BR, 04B0 = Unicode: the strings below are Portuguese.
+        BLOCK "041604B0"
+        BEGIN
+            VALUE "CompanyName",     "Zdisplay"
+            VALUE "FileDescription", "Zdisplay - controle de cor e brilho"
+            VALUE "FileVersion",     ZDISPLAY_VERSION_STR
+            VALUE "InternalName",    "zdisplay"
+            VALUE "LegalCopyright",  "Zdisplay"
+            VALUE "OriginalFilename","zdisplay.exe"
+            VALUE "ProductName",     "Zdisplay"
+            VALUE "ProductVersion",  ZDISPLAY_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x416, 1200
+    END
+END

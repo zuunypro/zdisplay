@@ -1,0 +1,50 @@
+#include <windows.h>
+#include "../src/version.h"
+
+// windres runs from this directory (installer/), so the paths below are relative
+// to it. See installer/make-setup.bat.
+
+// Manifest: per-monitor DPI awareness, no elevation.
+1 RT_MANIFEST "setup.manifest"
+
+// The application icon, so the installer shows the same one that later appears
+// in the tray.
+#ifdef ZDISPLAY_HAS_ICON
+1 ICON "../assets/zdisplay.ico"
+#endif
+
+// The whole zdisplay.exe, compressed by installer/pack.cpp. Resource id 1000 is
+// what setup_work.cpp looks for.
+#ifdef ZDISPLAY_HAS_PAYLOAD
+1000 RCDATA "build/payload.bin"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     ZDISPLAY_VERSION_COMMA
+PRODUCTVERSION  ZDISPLAY_VERSION_COMMA
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0416 = pt-BR, 04B0 = Unicode, matching the application's zdisplay.rc.
+        BLOCK "041604B0"
+        BEGIN
+            VALUE "CompanyName",     "Zdisplay"
+            VALUE "FileDescription", "Instalador do Zdisplay"
+            VALUE "FileVersion",     ZDISPLAY_VERSION_STR
+            VALUE "InternalName",    "zdisplay-setup"
+            VALUE "LegalCopyright",  "Zdisplay"
+            VALUE "OriginalFilename","zdisplay-setup.exe"
+            VALUE "ProductName",     "Zdisplay"
+            VALUE "ProductVersion",  ZDISPLAY_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x416, 1200
+    END
+END

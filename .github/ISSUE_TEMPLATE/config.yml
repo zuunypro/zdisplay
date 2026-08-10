@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Falha de segurança
+    url: https://github.com/zuunypro/zdisplay/security/advisories/new
+    about: Relato privado de vulnerabilidade. Não abra issue pública.

@@ -1,0 +1,133 @@
+#pragma once
+
+// Menu and control IDs for the user interface.
+namespace zdisplay {
+
+enum : int {
+    // tray menu
+    IDM_PROFILE_BASE = 40000,   // + profile index
+    IDM_AUTO         = 40900,
+    IDM_PAUSE        = 40901,
+    IDM_SETTINGS     = 40902,
+    IDM_EXIT         = 40903,
+    IDM_RESTORE      = 40904,
+    IDM_BRIGHT_UP    = 40905,
+    IDM_BRIGHT_DOWN  = 40906,
+
+    // Adjustments tab
+    IDC_PROFILE_COMBO = 1000,
+    IDC_MONITOR_COMBO,
+    IDC_PER_MONITOR,
+    IDC_AUTO_BTN,
+    IDC_PAUSE_BTN,
+    IDC_INVERT,
+    IDC_MANAGE_HWBRIGHT,
+    IDC_MANAGE_HWCONTRAST,
+    IDC_DDC_MONITOR_MODE,
+    IDC_MON_INPUT,
+    IDC_MON_PRESET,
+    IDC_MON_POWER,
+    IDC_RESET_ALL,
+    IDC_RESTORE_SCREEN,
+    IDC_COMPARE,
+
+    // slider reset buttons (one per field)
+    IDC_SLIDER_RESET_BASE = 1100,
+
+    // Profiles tab
+    IDC_PROFILE_LIST = 1200,
+    IDC_PROFILE_NAME,
+    IDC_PROFILE_HOTKEY,
+    IDC_PROFILE_TRANSITION,
+    IDC_PROFILE_SATENGINE,
+    IDC_PROFILE_NEW,
+    IDC_PROFILE_DUP,
+    IDC_PROFILE_DELETE,
+    IDC_PROFILE_DEFAULT,
+    IDC_PROFILE_EXPORT,
+    IDC_PROFILE_IMPORT,
+
+    // Automation tab
+    IDC_APP_LIST = 1300,
+    IDC_APP_PROCESS,
+    IDC_APP_PROFILE,
+    IDC_APP_PRIORITY,
+    IDC_APP_ENABLED,
+    IDC_APP_ADD,
+    IDC_APP_UPDATE,
+    IDC_APP_DELETE,
+    IDC_APP_PICK,
+
+    IDC_SCHED_LIST = 1350,
+    IDC_SCHED_START,
+    IDC_SCHED_END,
+    IDC_SCHED_PROFILE,
+    IDC_SCHED_ENABLED,
+    IDC_SCHED_ADD,
+    IDC_SCHED_UPDATE,
+    IDC_SCHED_DELETE,
+    IDC_SCHED_PRIORITY,
+    IDC_LATITUDE,
+    IDC_LONGITUDE,
+    IDC_CHK_MIRROR_KEYS,
+
+    // System tab
+    IDC_CHK_STARTUP = 1400,
+    IDC_CHK_MINIMIZED,
+    IDC_CHK_APPRULES,
+    IDC_CHK_SCHEDULE,
+    IDC_CHK_RESTORE,
+    IDC_WATCHDOG,
+    IDC_CHK_VENDOR,
+    IDC_CHK_MAGNIFY,
+    IDC_CHK_DDC,
+    IDC_CHK_BACKLIGHT,
+    IDC_CHK_OVERLAY,
+    IDC_UNLOCK_GAMMA,
+    IDC_RELOCK_GAMMA,
+    IDC_OPEN_FOLDER,
+    IDC_CHK_CONFIRM_DARK,
+    IDC_HK_BASE,          // 7 consecutive hotkey fields
+    IDC_HK_STEP = IDC_HK_BASE + 10,
+    IDC_FACTORY_RESET,
+
+    // Diagnostics tab
+    IDC_DIAG_TEXT = 1500,
+    IDC_DIAG_REFRESH,
+    IDC_DIAG_COPY,
+    IDC_DIAG_OPENLOG,
+    IDC_DIAG_CAPS,
+    IDC_DIAG_DDC_RESET,
+    IDC_DIAG_ROUNDTRIP,
+
+    // Vision tab
+    IDC_VIS_ENABLE = 1600,
+    IDC_VIS_DAY_TEMP,
+    IDC_VIS_NIGHT_TEMP,
+    IDC_VIS_NIGHT_BRIGHT,
+    IDC_VIS_TRANSITION,
+    IDC_VIS_NIGHT_START,
+    IDC_VIS_DAY_START,
+    IDC_VIS_BREAK,
+    IDC_VIS_PREVIEW_DAY,
+    IDC_VIS_PREVIEW_NIGHT,
+    IDC_VIS_STATUS,
+    IDC_VIS_TEST_BREAK,
+
+    IDC_TABS = 1900,
+    IDC_STATUS = 1901,
+};
+
+// Global hotkey action types.
+enum : int {
+    HK_BRIGHT_UP = 1,
+    HK_BRIGHT_DOWN,
+    HK_SAT_UP,
+    HK_SAT_DOWN,
+    HK_TOGGLE,
+    HK_SHOW,
+    HK_PROFILE,
+    HK_PANIC,
+};
+
+}  // namespace zdisplay

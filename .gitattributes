@@ -1,0 +1,12 @@
+# Sources are UTF-8 without BOM and are normalised to LF in the repository.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF to run under cmd.exe.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.ico binary
+*.exe binary
+*.dat binary
+
+*.rc linguist-language=C++

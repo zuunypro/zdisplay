@@ -1,0 +1,67 @@
+name: Relatar um problema
+description: Algo não funciona como deveria
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Falha de **segurança** não vai aqui. Use o canal privado descrito em
+        [SECURITY.md](../blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: O que acontece
+      description: E o que você esperava que acontecesse.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Como reproduzir
+      placeholder: |
+        1. Abrir a aba Ajustes
+        2. Mover a barra de saturação para 130
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Versão do Zdisplay
+      description: A primeira linha de `zdisplay.exe --status`.
+      placeholder: "1.0.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Versão do Windows
+      placeholder: "Windows 11 24H2 (26100)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diag
+    attributes:
+      label: Saída de --diag
+      description: >
+        Cole a saída de `zdisplay.exe --diag`. Ela lista, por monitor, qual
+        backend cuida de quê e o motivo quando um controle não está disponível.
+        Para problema de monitor, GPU ou brilho, é a informação que resolve.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Qualquer outra coisa
+      description: >
+        Monitor e modelo, se o problema é de hardware. HDR ligado? Luz noturna
+        do Windows ligada? Outro programa de cor rodando junto?
+    validations:
+      required: false
