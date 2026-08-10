@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a profile name with a non-ASCII character, so a decoder that drops or
   swaps a byte fails the test instead of silently producing mojibake.
 
+### Removed
+
+- Dead code: an unused DPI helper in the settings window.
+
 ### Fixed
 
 - Decoding a UTF-16 little-endian configuration file read the byte buffer
