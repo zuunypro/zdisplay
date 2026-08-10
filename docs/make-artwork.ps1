@@ -135,7 +135,7 @@ $stats = @(
     @{ v = '1.6 MB';  l = 'executable' },
     @{ v = '3.6 MB';  l = 'memory' },
     @{ v = '0%';      l = 'idle CPU' },
-    @{ v = '404';     l = 'tests' },
+    @{ v = '410';     l = 'tests' },
     @{ v = 'GPL-3.0'; l = 'license' }
 )
 $sx = $tx

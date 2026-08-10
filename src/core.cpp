@@ -833,9 +833,19 @@ std::wstring DecodeText(const std::string& raw) {
         const unsigned char b0 = (unsigned char)raw[0];
         const unsigned char b1 = (unsigned char)raw[1];
 
+        // Both orders assemble the code units byte by byte rather than casting
+        // the buffer to wchar_t*. The cast would read a char array through an
+        // unrelated pointer type, which is undefined behaviour even where the
+        // alignment happens to work out, as it does on Windows.
         if (b0 == 0xFF && b1 == 0xFE) {  // UTF-16 LE
             const size_t chars = (raw.size() - 2) / 2;
-            return std::wstring(reinterpret_cast<const wchar_t*>(raw.data() + 2), chars);
+            std::wstring out(chars, L'\0');
+            for (size_t i = 0; i < chars; ++i) {
+                const unsigned char lo = (unsigned char)raw[2 + i * 2];
+                const unsigned char hi = (unsigned char)raw[2 + i * 2 + 1];
+                out[i] = (wchar_t)((hi << 8) | lo);
+            }
+            return out;
         }
         if (b0 == 0xFE && b1 == 0xFF) {  // UTF-16 BE: swap the bytes
             const size_t chars = (raw.size() - 2) / 2;

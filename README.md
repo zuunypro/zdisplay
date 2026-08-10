@@ -1,6 +1,6 @@
 ![Zdisplay — black equalizer, digital vibrance, brightness and color temperature
 for Windows, in one tray app. 1.6 MB executable, 3.6 MB of memory, no CPU at
-idle, 404 tests, GPL-3.0](docs/img/banner.png)
+idle, 410 tests, GPL-3.0](docs/img/banner.png)
 
 [![CI](https://github.com/zuunypro/zdisplay/actions/workflows/ci.yml/badge.svg)](https://github.com/zuunypro/zdisplay/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-d62d32.svg)](LICENSE)
@@ -606,7 +606,7 @@ Or, to build the program **and** run the suite in one invocation:
 make check
 ```
 
-404 tests that do not depend on hardware — they run the same on any machine.
+410 tests that do not depend on hardware — they run the same on any machine.
 They cover the color math (5,400 ramp combinations verifying that it never
 decreases nor blanks the screen), the 441 combinations of the shadow curve, the
 safety limits, the application and schedule rules, the configuration round trip,

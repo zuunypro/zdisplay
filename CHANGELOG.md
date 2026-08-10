@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Configuration files are now tested in every encoding the loader claims to
+  accept: UTF-16 in both byte orders and UTF-8, each carrying a byte-order mark
+  and a profile name with a non-ASCII character, so a decoder that drops or
+  swaps a byte fails the test instead of silently producing mojibake.
+
+### Fixed
+
+- Decoding a UTF-16 little-endian configuration file read the byte buffer
+  through a `wchar_t` pointer. The alignment works out on Windows and no
+  failure was observed, but reading an object through an unrelated pointer type
+  is undefined behaviour; both byte orders now assemble the code units a byte at
+  a time, as the big-endian path already did.
+
 ## [1.0.0] — 2026-08-10
 
 First public, stable release.

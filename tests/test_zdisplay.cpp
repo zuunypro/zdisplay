@@ -60,7 +60,7 @@ void PutDescriptor(std::vector<unsigned char>& e, int offset,
                    unsigned char tag, const char* text) {
     e[(size_t)offset + 3] = tag;
     size_t i = 0;
-    for (; text[i] && i < 13; ++i) e[(size_t)offset + 5 + i] = (unsigned char)text[i];
+    for (; i < 13 && text[i]; ++i) e[(size_t)offset + 5 + i] = (unsigned char)text[i];
     if (i < 13) e[(size_t)offset + 5 + i++] = 0x0A;
     while (i < 13) e[(size_t)offset + 5 + i++] = 0x20;
 }
@@ -1156,6 +1156,59 @@ void TestConfigRoundTrip() {
           "regra de aplicativo sobreviveu");
 }
 
+/// Notepad's "Unicode" save options write UTF-16, so a configuration file can
+/// arrive in either byte order with a mark in front of it. The loader assembles
+/// the code units a byte at a time in both cases, and getting that wrong yields
+/// mojibake instead of a crash — which only a round trip through a non-ASCII
+/// name will catch.
+void TestConfigEncodings() {
+    Section("Configuracao: codificacoes de texto");
+
+    const std::wstring path = ConfigPath();
+    // U+00E3 keeps this honest: a decoder that drops or swaps a byte survives
+    // pure ASCII and fails here.
+    const std::wstring text = L"[perfil:Visão]\nbrilho=77\n";
+
+    auto writeBytes = [&](const std::string& bytes) {
+        HANDLE h = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        DWORD written = 0;
+        const bool ok = ::WriteFile(h, bytes.data(), (DWORD)bytes.size(), &written, nullptr) &&
+                        written == bytes.size();
+        ::CloseHandle(h);
+        ::DeleteFileW((path + L".bak").c_str());
+        return ok;
+    };
+
+    std::string le = "\xFF\xFE";
+    std::string be = "\xFE\xFF";
+    for (wchar_t c : text) {
+        const unsigned v = (unsigned)c;
+        le += (char)(unsigned char)(v & 0xFF);
+        le += (char)(unsigned char)((v >> 8) & 0xFF);
+        be += (char)(unsigned char)((v >> 8) & 0xFF);
+        be += (char)(unsigned char)(v & 0xFF);
+    }
+    std::string u8 = "\xEF\xBB\xBF" + WideToUtf8(text);
+
+    struct Case { const char* name; const std::string* bytes; };
+    const Case cases[] = {
+        { "UTF-16 LE com marca de ordem", &le },
+        { "UTF-16 BE com marca de ordem", &be },
+        { "UTF-8 com marca de ordem",     &u8 },
+    };
+
+    for (const auto& c : cases) {
+        if (!writeBytes(*c.bytes)) { Check(false, c.name, "nao consegui gravar o arquivo"); continue; }
+        Config cfg;
+        LoadConfig(&cfg);
+        const Profile* p = cfg.Find(L"Visão");
+        Check(p != nullptr, c.name, "o nome acentuado nao sobreviveu a decodificacao");
+        if (p) CheckNear(p->global.brightness, 77, 0.001, c.name);
+    }
+}
+
 void TestConfigHostile() {
     Section("Configuracao: arquivos estragados");
 
@@ -1918,6 +1971,7 @@ int wmain() {
     TestProfiles();
     TestBlend();
     TestConfigRoundTrip();
+    TestConfigEncodings();
     TestConfigHostile();
     TestBaseline();
     TestDuplicateMonitorKeys();
