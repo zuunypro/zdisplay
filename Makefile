@@ -24,7 +24,12 @@ include flags.mk
 # instead: cmd treats the forward slashes in `-c src/common.cpp` as switches and
 # mangles the command line. MSYSTEM is set by all three environments.
 ifeq ($(OS)$(MSYSTEM),Windows_NT)
-  SHELL := $(COMSPEC)
+  # PowerShell does not pass ComSpec through in the form make reads, so COMSPEC
+  # is empty when make is started from there. Assigning it blindly leaves SHELL
+  # empty, make then resolves it against PATH, and every recipe is handed to the
+  # first directory it finds — reported only as "Access denied", which points
+  # nowhere near the cause. cmd.exe is always on PATH, so it is the fallback.
+  SHELL := $(if $(COMSPEC),$(COMSPEC),cmd.exe)
   .SHELLFLAGS := /C
   EXEPATH = $(subst /,\,$(1))
   MKDIR = if not exist "$(subst /,\,$(1))" mkdir "$(subst /,\,$(1))"
