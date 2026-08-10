@@ -1,0 +1,141 @@
+name: Release
+
+# Builds the published binaries in CI rather than on a developer machine, so the
+# SHA-256 in the release notes belongs to an artifact anyone can trace back to a
+# public build log.
+#
+# This workflow deliberately uses build.bat and the w64devkit toolchain it
+# downloads, not the MSYS2 toolchain used by ci.yml. SECURITY.md tells users that
+# rebuilding a tag with the same w64devkit release reproduces the published
+# hash, and that promise only holds if the release is built the same way.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach assets to (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write      # create the release and attach assets
+  id-token: write      # Sigstore signing certificate for the attestation
+  attestations: write  # record the provenance against the repository
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Read the pinned toolchain from flags.mk
+        id: toolchain
+        shell: bash
+        run: |
+          sha=$(grep -oP '^ZDISPLAY_TOOLCHAIN_SHA256=\K.*' flags.mk | tr -d '\r')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Pinned w64devkit SHA-256: $sha"
+
+      # The toolchain is keyed by the SHA-256 pinned in flags.mk, so a cache hit
+      # can only ever restore the exact archive build.bat would have verified.
+      - name: Cache the w64devkit toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tools
+          key: w64devkit-${{ steps.toolchain.outputs.sha }}
+
+      - name: Verify the tag matches src/version.h
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          declared=$(grep -oP 'ZDISPLAY_VERSION_STR\s+"\K[0-9.]+' src/version.h)
+          if [ "v$declared" != "$tag" ]; then
+            echo "Tag $tag does not match ZDISPLAY_VERSION_STR ($declared) in src/version.h."
+            echo "Bump the header or retag before releasing."
+            exit 1
+          fi
+          echo "Tag $tag matches version $declared."
+
+      # PATH is reduced to the Windows directories on purpose. The runner ships
+      # its own MinGW, and build.bat would use whatever g++ it finds first; the
+      # published binary must come from the pinned toolchain instead. build.bat
+      # verifies its SHA-256 and Authenticode signature before extracting it.
+      - name: Build and test with the pinned toolchain
+        shell: cmd
+        run: |
+          set "PATH=C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0"
+          call build.bat
+          if errorlevel 1 exit /b 1
+
+      - name: Build the installer
+        shell: cmd
+        run: |
+          set "PATH=C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0"
+          call installer\make-setup.bat
+          if errorlevel 1 exit /b 1
+
+      # Assets carry the version and architecture, so a downloaded file is still
+      # identifiable once it is sitting in a Downloads folder.
+      #
+      # The portable archive ships the zdisplay-portable.txt marker already in
+      # place, so extracting and running it keeps every setting beside the
+      # executable without the user having to create that file themselves.
+      - name: Collect artifacts and hashes
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          mkdir -p dist portable
+          cp build/release/zdisplay.exe "dist/zdisplay-${version}-x64.exe"
+          cp zdisplay-setup.exe         "dist/zdisplay-setup-${version}-x64.exe"
+
+          cp build/release/zdisplay.exe portable/zdisplay.exe
+          : > portable/zdisplay-portable.txt
+          cat > portable/README.txt <<'TXT'
+          Zdisplay - portable
+
+          Run zdisplay.exe. It appears in the system tray; double-click the icon
+          to open the settings, middle-click to pause and restore the screen.
+
+          zdisplay-portable.txt next to the executable is what keeps this copy
+          portable: settings, log and saved display state are written to this
+          folder, nothing goes to %APPDATA% or the registry, and deleting the
+          folder removes every trace. Delete that marker and Zdisplay switches
+          to the normal per-user location.
+
+          Emergency: Ctrl+Alt+Shift+K restores the display and pauses, from
+          anywhere in Windows.
+
+          Source, documentation and SHA-256 checksums:
+          https://github.com/zuunypro/zdisplay
+          TXT
+          cd portable && 7z a -tzip -mx=9 "../dist/zdisplay-${version}-x64-portable.zip" . >/dev/null && cd ..
+
+          cd dist
+          sha256sum ./* | sed 's|\./||' | grep -v 'SHA256SUMS' | tee SHA256SUMS.txt
+
+      # Signed provenance tying each artifact to this commit, this workflow and
+      # this run. The published SHA-256 says two files are identical; this says
+      # where the file came from, and `gh attestation verify` checks it against
+      # a transparency log rather than against a hash somebody typed into the
+      # release notes.
+      - name: Attest the artifacts
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.exe
+            dist/*.zip
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist/*.exe
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true

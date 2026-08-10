@@ -1,0 +1,28 @@
+name: Suggest a change
+description: A new feature, or an improvement to something that already exists
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: >
+        Describe the real situation, not the solution. What were you trying to
+        do when you found this missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you have already tried
+      description: Another setting, another program, another approach.
+    validations:
+      required: false

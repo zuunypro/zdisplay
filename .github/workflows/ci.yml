@@ -1,0 +1,102 @@
+name: CI
+
+# Actions are pinned to a commit, not a tag, because a tag can be moved to point
+# at different code by whoever owns the action. Dependabot proposes the updates
+# and rewrites both the digest and the comment.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up MinGW-w64
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+            make
+
+      - name: Build and run the test suite
+        shell: msys2 {0}
+        run: make check
+
+      - name: Verify binary hardening
+        shell: msys2 {0}
+        run: |
+          for flag in NX_COMPAT DYNAMIC_BASE HIGH_ENTROPY_VA; do
+            objdump -x build/release/zdisplay.exe | grep -q "$flag" \
+              || { echo "$flag is not set on the binary"; exit 1; }
+          done
+          echo 'DEP, ASLR and high-entropy ASLR are all set.'
+
+      - name: Report binary size and hash
+        shell: msys2 {0}
+        run: |
+          ls -l build/release/zdisplay.exe
+          sha256sum build/release/zdisplay.exe
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zdisplay-${{ github.sha }}
+          path: build/release/zdisplay.exe
+          if-no-files-found: error
+
+  # The release build is optimised and has no runtime checks. This job rebuilds
+  # only the suite with the address and undefined-behaviour sanitizers, which
+  # report out-of-bounds access, use-after-free and signed overflow at the point
+  # they happen instead of leaving corruption to surface somewhere else later.
+  sanitizers:
+    name: Test suite under ASan and UBSan
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Clang
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: CLANG64
+          update: false
+          install: >-
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-compiler-rt
+            make
+
+      # Sources and libraries come from flags.mk, so this job cannot drift away
+      # from what the Makefile actually builds.
+      - name: Build and run the suite instrumented
+        shell: msys2 {0}
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          ASAN_OPTIONS: abort_on_error=1
+        run: |
+          set -e
+          SRC=$(grep -oP '^ZDISPLAY_TESTSRC=\K.*'  flags.mk)
+          LIBS=$(grep -oP '^ZDISPLAY_TESTLIBS=\K.*' flags.mk)
+          STD=$(grep -oP '^ZDISPLAY_STD=\K.*'       flags.mk)
+          echo "sources: $SRC"
+          mkdir -p build/asan
+          # -fno-sanitize=function: the indirect-call check needs RTTI metadata
+          # the project does not build with, and reports every callback.
+          clang++ $STD -municode -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN \
+                  -g -O1 -fno-omit-frame-pointer \
+                  -fsanitize=address,undefined -fno-sanitize=function \
+                  $SRC -o build/asan/test_zdisplay.exe $LIBS
+          ./build/asan/test_zdisplay.exe

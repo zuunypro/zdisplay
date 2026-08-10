@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+title: Zdisplay
+message: If you reference this software, please cite it as below.
+type: software
+authors:
+  - alias: zuunypro
+    website: 'https://github.com/zuunypro'
+repository-code: 'https://github.com/zuunypro/zdisplay'
+url: 'https://zuuny.vercel.app/programas/zdisplay'
+abstract: >-
+  A Windows tray application that controls brightness, contrast, saturation,
+  digital vibrance, gamma, color temperature, hue, blue light reduction and
+  near-black shadow detail from a single program. It selects among GDI gamma
+  ramp, Magnification color matrix, NVAPI, ADL, DDC/CI, SDR white level and WMI
+  backlight backends according to what each machine supports, and reports per
+  monitor which control is available and why one is not. Profiles switch
+  automatically by foreground application or by a schedule that accepts
+  sunrise- and sunset-relative times. Written in C++17 against the Win32 API
+  with no framework or runtime.
+keywords:
+  - windows
+  - display
+  - color-management
+  - black-equalizer
+  - shadow-detail
+  - digital-vibrance
+  - gamma-ramp
+  - color-temperature
+  - blue-light
+  - ddc-ci
+  - hdr
+  - cpp
+license: GPL-3.0-or-later
+version: 1.0.0
+date-released: '2026-08-10'

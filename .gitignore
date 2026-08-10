@@ -1,0 +1,43 @@
+# Build output
+build/
+installer/build/
+dist/
+*.o
+*.d
+*.obj
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.res
+*.a
+*.lib
+
+# Toolchain fetched by build.bat
+tools/
+
+# Runtime state written next to the executable in portable mode
+zdisplay.ini
+zdisplay.ini.bak
+zdisplay.ini.invalido
+zdisplay-portable.txt
+zdisplay.log
+baseline.dat
+session.lock
+caps-result-*.tmp
+
+# Editors and OS
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Never commit credentials
+*.pfx
+*.p12
+*.snk
+.git-cred

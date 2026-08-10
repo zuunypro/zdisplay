@@ -1,0 +1,25 @@
+# Sources are UTF-8 without BOM and are normalised to LF in the repository.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF to run under cmd.exe.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.ico binary
+*.exe binary
+*.dat binary
+
+# Language statistics.
+#
+# Every header here is C++. Without this, GitHub reports version.h as C, because
+# it holds nothing but #define lines.
+*.h  linguist-language=C++
+*.rc linguist-language=C++
+
+# Repository plumbing is not part of the program, and counting it produced an
+# "Other" slice on the language bar made of workflow YAML and a PowerShell
+# script. The bar should describe the software, not its packaging.
+.github/** linguist-vendored
+docs/**    linguist-documentation
+*.cff      linguist-detectable=false
+*.svg      linguist-detectable=false
