@@ -13,11 +13,17 @@ WINDRES  ?= windres
 
 include flags.mk
 
-# On Windows make defaults to SHELL=sh.exe even when no sh exists on PATH, and
-# then invokes each command through CreateProcess, where `cp` and `mkdir -p` are
-# unavailable: MinGW-w64 alone ships no coreutils. cmd is always present, so the
-# recipes below use it and rely only on its built-ins.
-ifeq ($(OS),Windows_NT)
+# Shell selection on Windows.
+#
+# With only MinGW-w64 on PATH there is no POSIX shell: make still defaults to
+# SHELL=sh.exe and then invokes each command through CreateProcess, where `cp`
+# and `mkdir -p` do not exist, because MinGW-w64 alone ships no coreutils. The
+# recipes then have to go through cmd and use only its built-ins.
+#
+# Under MSYS2, Cygwin or Git Bash a real POSIX shell is present and must be used
+# instead: cmd treats the forward slashes in `-c src/common.cpp` as switches and
+# mangles the command line. MSYSTEM is set by all three environments.
+ifeq ($(OS)$(MSYSTEM),Windows_NT)
   SHELL := $(COMSPEC)
   .SHELLFLAGS := /C
   EXEPATH = $(subst /,\,$(1))
