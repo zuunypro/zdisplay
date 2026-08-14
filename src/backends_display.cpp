@@ -13,13 +13,13 @@ static const wchar_t* kRangeValue = L"GdiIcmGammaRange";
 bool GammaBackend::Init() {
     const MonitorTarget* primary = monitors::Primary();
     if (!primary) {
-        details_ = L"nenhum monitor detectado";
+        details_ = L"no monitor detected";
         return false;
     }
 
     DeviceDC dc(primary->deviceName);
     if (!dc.Ok()) {
-        details_ = L"CreateDC falhou no monitor principal";
+        details_ = L"CreateDC failed on the primary monitor";
         return false;
     }
 
@@ -28,12 +28,12 @@ bool GammaBackend::Init() {
     const int caps = ::GetDeviceCaps(dc.Get(), COLORMGMTCAPS);
 
     if (!canRead && (caps & CM_GAMMA_RAMP) == 0) {
-        details_ = L"o driver de vídeo não expõe rampa de gamma";
+        details_ = L"the video driver exposes no gamma ramp";
         return false;
     }
 
     details_ = RangeUnlocked() ? L"faixa ampliada liberada no registro"
-                               : L"faixa padrão do Windows (limitada)";
+                               : L"standard Windows range (limited)";
     available_ = true;
     return true;
 }
@@ -78,7 +78,7 @@ void GammaBackend::BaseRampFor(const std::wstring& monitorKey, WORD out[768]) co
 void GammaBackend::WriteAdaptive(const MonitorTarget& m, const WORD target[768], MonState* st) {
     DeviceDC dc(m.deviceName);
     if (!dc.Ok()) {
-        KLOG_D(L"CreateDC falhou para %s", m.deviceName.c_str());
+        KLOG_D(L"CreateDC failed for %s", m.deviceName.c_str());
         return;
     }
 
@@ -130,7 +130,7 @@ void GammaBackend::WriteAdaptive(const MonitorTarget& m, const WORD target[768],
         if (!warned_) {
             warned_ = true;
             KLOG_W(L"O Windows limitou a rampa de gamma a %.0f%% do efeito pedido. "
-                   L"Use 'Liberar faixa completa de gamma' na aba Sistema para o efeito integral.",
+                   L"Use 'Unlock the full gamma range' on the System tab for the full effect.",
                    factor * 100.0);
         }
     } else if (factor >= 0.999) {
@@ -209,7 +209,7 @@ void GammaBackend::CaptureBaseline(const MonitorTarget& m) {
     baselineCustom_[m.key] = custom;
 
     KLOG_I(L"Estado original de '%s' guardado (%s).", m.friendlyName.c_str(),
-           custom ? L"tem calibracao própria — será preservada" : L"rampa linear");
+           custom ? L"has its own calibration - it will be preserved" : L"rampa linear");
 }
 
 bool GammaBackend::HasCustomBaseline(const std::wstring& monitorKey) const {
@@ -360,7 +360,7 @@ bool GammaBackend::TryUnlockRange(bool unlock) {
     HKEY key = nullptr;
     if (::RegCreateKeyExW(HKEY_LOCAL_MACHINE, kIcmKey, 0, nullptr, 0,
                           KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
-        KLOG_W(L"Não consegui abrir a chave ICM (precisa de administrador).");
+        KLOG_W(L"Could not open the ICM key (administrator required).");
         return false;
     }
 
@@ -378,7 +378,7 @@ bool GammaBackend::TryUnlockRange(bool unlock) {
     if (r == ERROR_SUCCESS)
         KLOG_I(L"GdiIcmGammaRange %s.", unlock ? L"liberado" : L"restaurado");
     else
-        KLOG_W(L"Falha ao gravar GdiIcmGammaRange (erro %ld).", r);
+        KLOG_W(L"Failed to write GdiIcmGammaRange (error %ld).", r);
     return r == ERROR_SUCCESS;
 }
 
@@ -429,11 +429,11 @@ void HdrBackend::Probe() {
 
     available_ = covered > 0;
     if (available_)
-        details_ = Format(L"%d tela(s) com HDR sob controle do nível de branco SDR", covered);
+        details_ = Format(L"%d display(s) with HDR under SDR white level control", covered);
     else if (hdrScreens > 0)
-        details_ = L"o Windows não expôs o nível de branco SDR nesta máquina";
+        details_ = L"Windows did not expose the SDR white level on this machine";
     else
-        details_ = L"nenhuma tela com HDR ligado";
+        details_ = L"no display with HDR on";
 }
 
 bool HdrBackend::Supports(const MonitorTarget& m) const {
@@ -450,7 +450,7 @@ void HdrBackend::CaptureBaseline(const MonitorTarget& m) {
     // read back may be one this backend wrote.
     if (!st.everChanged && st.origNits == 0) {
         st.origNits = nits;
-        KLOG_I(L"HDR: %s começou com %d nits de branco SDR.", m.friendlyName.c_str(), nits);
+        KLOG_I(L"HDR: %s started at %d nits of SDR white.", m.friendlyName.c_str(), nits);
     }
 }
 
@@ -549,7 +549,7 @@ static MagColorEffect ToMagEffect(const Mat5& m) {
 
 bool MagnifyBackend::Init() {
     if (!lib_.Load(L"magnification.dll")) {
-        details_ = L"magnification.dll não encontrada";
+        details_ = L"magnification.dll not found";
         return false;
     }
 
@@ -559,12 +559,12 @@ bool MagnifyBackend::Init() {
     pMagGet_    = lib_.Get<PfnMagGetFullscreenColorEffect>("MagGetFullscreenColorEffect");
 
     if (!pMagInit_ || !pMagSet_) {
-        details_ = L"a DLL não expõe o efeito de cor de tela cheia";
+        details_ = L"the DLL exposes no fullscreen color effect";
         return false;
     }
 
     if (!pMagInit_()) {
-        details_ = L"MagInitialize falhou";
+        details_ = L"MagInitialize failed";
         return false;
     }
     initialized_ = true;
@@ -582,8 +582,8 @@ bool MagnifyBackend::Init() {
     }
 
     if (hasOriginal_ && !original_.NearlyEquals(Mat5::Identity())) {
-        details_ = L"os Filtros de cor do Windows estão ativos; a saturação "
-                   L"universal fica desligada para não desfaze-los";
+        details_ = L"the Windows Color filters are active - universal "
+                   L"saturation stays off so as not to undo them";
         if (pMagUninit_) pMagUninit_();
         initialized_ = false;
         return false;
@@ -592,7 +592,7 @@ bool MagnifyBackend::Init() {
     // The backend is only reported available once the effect is accepted.
     const MagColorEffect identity = ToMagEffect(Mat5::Identity());
     if (!pMagSet_(&identity)) {
-        details_ = L"efeito recusado (outro programa de ampliacao esta ativo?)";
+        details_ = L"effect refused (is another magnifier program active?)";
         if (pMagUninit_) pMagUninit_();
         initialized_ = false;
         return false;
@@ -600,7 +600,7 @@ bool MagnifyBackend::Init() {
 
     last_ = Mat5::Identity();
     hasLast_ = true;
-    details_ = L"efeito global ativo (vale para todos os monitores)";
+    details_ = L"global effect active (applies to every monitor)";
     available_ = true;
     return true;
 }
@@ -705,12 +705,12 @@ bool OverlayBackend::Init() {
         wc.hbrBackground = reinterpret_cast<HBRUSH>(::GetStockObject(BLACK_BRUSH));
         wc.lpszClassName = kOverlayClass;
         if (!::RegisterClassExW(&wc) && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-            details_ = L"não consegui registrar a janela de sobreposição";
+            details_ = L"could not register the overlay window class";
             return false;
         }
         classRegistered_ = true;
     }
-    details_ = L"pronto (só entra em cena com escurecimento maior que zero)";
+    details_ = L"ready (only comes into play with dimming above zero)";
     available_ = true;
     return true;
 }
@@ -730,7 +730,7 @@ HWND OverlayBackend::GetOrCreate(const MonitorTarget& m) {
         nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr);
 
     if (!hwnd) {
-        KLOG_W(L"Não consegui criar a camada de escurecimento (erro %lu).", ::GetLastError());
+        KLOG_W(L"Could not create the dimming layer (error %lu).", ::GetLastError());
         return nullptr;
     }
     windows_[m.key] = hwnd;

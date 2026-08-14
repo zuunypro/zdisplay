@@ -100,43 +100,48 @@ void Report(const std::wstring& text, bool isError) {
 }
 
 void ShowHelp() {
-    const wchar_t* text =
-        L"Zdisplay " ZDISPLAY_VERSION_WSTR
-        L" — controle de brilho, contraste, saturação, gamma e temperatura de cor.\n\n"
-        L"Sem argumentos, abre o programa (ou traz a janela da instância já aberta).\n"
-        L"Com argumentos, envia o comando para a instância que esta rodando.\n\n"
-        L"ARRANQUE\n"
-        L"  --tray                 inicia direto na bandeja, sem janela\n"
-        L"  --verbose              log detalhado\n"
-        L"  --make-icon            gera assets\\zdisplay.ico e sai\n\n"
-        L"COMANDOS\n"
-        L"  --profile \"Jogo\"       ativa um perfil\n"
-        L"  --auto                 volta ao modo automático\n"
-        L"  --brightness 80        brilho por software, 10..150\n"
-        L"  --contrast 110         contraste, 0..200\n"
-        L"  --saturation 130       saturação, 0..200\n"
-        L"  --vibrance 50          vibrance da GPU, 0..100\n"
-        L"  --temperature 3400     temperatura de cor em Kelvin\n"
-        L"  --gamma 1.1            gamma, 0.3..3.0\n"
-        L"  --shadows 70           levanta só os tons escuros, 0..100\n"
-        L"  --clarity 50           detalhe nas sombras, 0..100\n"
-        L"  --hue 15               matiz, -180..180\n"
-        L"  --dim 20               escurecimento por sobreposição, 0..90\n"
-        L"  --hwbrightness 60      brilho físico (DDC/CI ou backlight)\n"
-        L"  --toggle | --on | --off\n"
-        L"  --reset                restaura a tela ao estado original\n"
-        L"  --panic                EMERGÊNCIA: devolve a tela e pausa\n"
-        L"  --status               mostra o estado atual\n"
-        L"  --diag                 lista os backends detectados\n"
-        L"  --list                 lista os perfis\n"
-        L"  --show                 abre a janela de configuração\n"
-        L"  --aba 5                abre a janela numa aba: 0 Ajustes, 1 Visão,\n"
-        L"                         2 Perfis, 3 Automação, 4 Sistema, 5 Diagnóstico\n"
-        L"  --quit                 encerra o programa\n";
+    // Three blocks rather than one: the flag names have to stay verbatim, and a
+    // reworded sentence in one section should not cost the translation of the
+    // other two.
+    std::wstring text = L"Zdisplay " ZDISPLAY_VERSION_WSTR;
+    text += T(L" — brightness, contrast, saturation, gamma and color temperature "
+              L"control.\n\n"
+              L"With no arguments it opens the program (or brings up the window of the "
+              L"instance already running).\n"
+              L"With arguments it sends the command to the running instance.\n\n");
+    text += T(L"STARTUP\n"
+              L"  --tray                 start straight in the tray, with no window\n"
+              L"  --verbose              detailed log\n"
+              L"  --make-icon            write assets\\zdisplay.ico and exit\n\n");
+    text += T(L"COMMANDS\n"
+              L"  --profile \"Game\"       activate a profile\n"
+              L"  --auto                 return to automatic mode\n"
+              L"  --brightness 80        software brightness, 10..150\n"
+              L"  --contrast 110         contrast, 0..200\n"
+              L"  --saturation 130       saturation, 0..200\n"
+              L"  --vibrance 50          GPU vibrance, 0..100\n"
+              L"  --temperature 3400     color temperature in kelvin\n"
+              L"  --gamma 1.1            gamma, 0.3..3.0\n"
+              L"  --shadows 70           raise only the dark tones, 0..100\n"
+              L"  --clarity 50           shadow detail, 0..100\n"
+              L"  --hue 15               hue, -180..180\n"
+              L"  --dim 20               dimming by overlay, 0..90\n"
+              L"  --hwbrightness 60      physical brightness (DDC/CI or backlight)\n"
+              L"  --toggle | --on | --off\n"
+              L"  --reset                restore the display to its original state\n"
+              L"  --panic                EMERGENCY: give the display back and pause\n"
+              L"  --status               show the current state\n"
+              L"  --diag                 list the detected backends\n"
+              L"  --list                 list the profiles\n"
+              L"  --show                 open the settings window\n"
+              L"  --tab 5                open the window on a tab: 0 Adjustments,\n"
+              L"                         1 Vision, 2 Profiles, 3 Automation,\n"
+              L"                         4 System, 5 Diagnostics\n"
+              L"  --quit                 close the program\n");
 
     // Help follows the same path as every other reply: the console when there is
     // one, a dialog otherwise.
-    Report(text, false);
+    Report(text.c_str(), false);
 }
 
 int RunApp(HINSTANCE inst, const std::vector<std::wstring>& args) {
@@ -190,6 +195,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     }
 
     if (HasFlag(args, L"--help") || HasFlag(args, L"-h") || HasFlag(args, L"/?")) {
+        // The help is the one piece of text produced before the application
+        // exists, so nothing has resolved the language yet. It follows Windows
+        // rather than the configuration file on purpose: LoadConfig creates and
+        // seeds the file when it is missing, and printing help is not a reason
+        // to write anything to disk.
+        SetLanguage(LangChoice::Auto);
         ShowHelp();
         return 0;
     }
@@ -219,7 +230,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
         const std::wstring reply = PipeServer::SendCommand(command);
         if (mutex) ::CloseHandle(mutex);
 
-        if (reply.rfind(L"erro:", 0) == 0) {
+        if (reply.rfind(kCommandErrorPrefix, 0) == 0) {
             Report(reply, true);
             return 1;
         }
@@ -235,13 +246,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
     LogInit(HasFlag(args, L"--verbose") || HasFlag(args, L"-v"));
-    KLOG_I(L"=== Zdisplay " ZDISPLAY_VERSION_WSTR L" iniciando ===");
-    KLOG_I(L"Executável: %s", ExePath().c_str());
-    KLOG_I(L"Configuração: %s", ConfigPath().c_str());
+    KLOG_I(L"=== Zdisplay " ZDISPLAY_VERSION_WSTR L" starting ===");
+    KLOG_I(L"Executable: %s", ExePath().c_str());
+    KLOG_I(L"Configuration: %s", ConfigPath().c_str());
 
     const int result = RunApp(inst, args);
 
-    KLOG_I(L"=== Zdisplay encerrado ===");
+    KLOG_I(L"=== Zdisplay stopped ===");
     ::CoUninitialize();
     if (mutex) { ::ReleaseMutex(mutex); ::CloseHandle(mutex); }
     return result;

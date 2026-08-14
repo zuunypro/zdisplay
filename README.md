@@ -21,8 +21,8 @@ wakes it through `SetWinEventHook` when the foreground window changes.
 **[Download the latest release](https://github.com/zuunypro/zdisplay/releases/latest)**
 · [project page](https://zuuny.vercel.app/programas/zdisplay)
 
-> The user interface is currently in Portuguese. Translations are planned — see
-> [Other languages](#other-languages).
+> The interface is in English, and in Portuguese on a machine set to
+> Portuguese. See [Other languages](#other-languages).
 
 ## Install
 
@@ -202,15 +202,14 @@ does not work there, why. It answers the question that actually comes up:
 
 ```
 AOC FTV (DISPLAY1)
-    brilho, contraste, gamma, temperatura, sombras: rampa de gamma
-    saturação, vibrance, matiz: AMD (ADL) + matriz de cor
-    brilho físico: indisponível (este monitor não respondeu a DDC/CI)
+    brightness, contrast, gamma, temperature, shadows: gamma ramp
+    saturation, vibrance, hue: AMD (ADL) + color matrix
+    physical brightness: unavailable (this monitor did not answer DDC/CI)
 ```
 
-That output is the program's own, so it is in Portuguese today. It reads:
-brightness, contrast, gamma, temperature and shadows are handled by the gamma
-ramp; saturation, vibrance and hue by AMD (ADL) plus the color matrix; hardware
-brightness is unavailable, because this monitor did not answer DDC/CI.
+Diagnostics are always in English, whatever the interface language is: they
+exist to be pasted into a problem report and read by whoever maintains the
+program.
 
 The tab shows the same thing in full — every backend marked `[ok]` or `[--]`
 with the reason, then each monitor with its EDID, its gamut, which adapter
@@ -501,7 +500,7 @@ schedule rules — so that two overlapping ranges have an explicit tiebreak
 instead of depending on line order in the file.
 
 **You do not need to know the executable's name.** The *Process* field, in the
-**Automation** tab (*Automação*), is a list of the programs you currently have
+**Automation** tab, is a list of the programs you currently have
 open — the same list as Alt+Tab, re-enumerated every time you open the menu.
 Pick one and you are done. The field still accepts typed text, for programs that
 are not running at the moment and for wildcards: `cs*` matches `cs2` and `csgo`.
@@ -606,7 +605,7 @@ Or, to build the program **and** run the suite in one invocation:
 make check
 ```
 
-410 tests that do not depend on hardware — they run the same on any machine.
+474 tests that do not depend on hardware — they run the same on any machine.
 They cover the color math (5,400 ramp combinations verifying that it never
 decreases nor blanks the screen), the 441 combinations of the shadow curve, the
 safety limits, the application and schedule rules, the configuration round trip,
@@ -874,13 +873,24 @@ src/
   main.cpp            entry point, single instance, CLI
 ```
 
-Code comments are in **English**; interface text and log messages are in
-**Portuguese** — the language of the program's users today.
+The source, the comments and the log are in **English**. Interface text is
+written in English too, and the English wording is the key its translations are
+looked up by, so a call site reads as the sentence it produces.
 
 ## Other languages
 
-The program's interface and messages are currently in Portuguese. Translations
-are planned, and the goal is to ship Zdisplay in every language its users speak.
+Zdisplay ships in **English and Portuguese**. It follows the Windows UI
+language on first run — every regional variant of Portuguese lands on
+Portuguese, everything else on English — and the choice can be pinned on the
+System tab or with `idioma=pt` / `idioma=en` in `zdisplay.ini`. The installer
+follows the same rule.
+
+A language is one column in a table compiled into the binary
+([`src/strings.cpp`](src/strings.cpp)): there are no translation files to ship,
+to load or to validate. Adding a language means adding a column; a message with
+no translation yet falls back to its English wording, so a partial translation
+shows real text rather than a blank caption.
+
 If you would like to help translate it, [open an
 issue](https://github.com/zuunypro/zdisplay/issues/new/choose) — that
 contribution is as welcome as any code change.

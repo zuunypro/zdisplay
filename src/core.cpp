@@ -574,25 +574,29 @@ std::wstring SanitizeProfileName(const std::wstring& name) {
 
 std::wstring Config::UniqueName(const std::wstring& base) const {
     const std::wstring clean = SanitizeProfileName(base);
-    const std::wstring root = clean.empty() ? std::wstring(L"Perfil") : clean;
+    const std::wstring root = clean.empty() ? std::wstring(T(L"Profile")) : clean;
     if (!Find(root)) return root;
     for (int i = 2; i < 1000; ++i) {
         std::wstring candidate = root + L" " + std::to_wstring(i);
         if (!Find(candidate)) return candidate;
     }
-    return root + L" novo";
+    return Format(T(L"%s (new)"), root.c_str());
 }
 
 void Config::SeedDefaults() {
     profiles.clear();
 
+    // The shipped profile names are translated, because they are what the user
+    // reads in the list. This is the only place a name may be localised: it runs
+    // on a fresh install, where no rule points anywhere yet. An existing
+    // configuration is never reseeded, so renaming cannot orphan a rule.
     Profile padrao;
-    padrao.name = L"Padrão";
+    padrao.name = T(L"Default");
     padrao.transitionMs = 300;
     profiles.push_back(padrao);
 
     Profile jogo;
-    jogo.name = L"Jogo";
+    jogo.name = T(L"Game");
     jogo.transitionMs = 200;
     jogo.global.brightness = 105;
     jogo.global.contrast   = 108;
@@ -606,7 +610,7 @@ void Config::SeedDefaults() {
     // For dark maps: shadow lift near maximum, with high clarity so dark corners
     // gain light without turning into a grey blur.
     Profile competitivo;
-    competitivo.name = L"Competitivo";
+    competitivo.name = T(L"Competitive");
     competitivo.transitionMs = 150;
     competitivo.global.shadows    = 78;
     competitivo.global.clarity    = 65;
@@ -616,7 +620,7 @@ void Config::SeedDefaults() {
     profiles.push_back(competitivo);
 
     Profile noite;
-    noite.name = L"Noite";
+    noite.name = T(L"Night");
     noite.transitionMs = 1500;
     noite.global.brightness  = 75;
     noite.global.temperature = 3400;
@@ -625,7 +629,7 @@ void Config::SeedDefaults() {
     profiles.push_back(noite);
 
     Profile filme;
-    filme.name = L"Filme";
+    filme.name = T(L"Movie");
     filme.transitionMs = 600;
     filme.global.brightness = 95;
     filme.global.contrast   = 112;
@@ -634,7 +638,7 @@ void Config::SeedDefaults() {
     profiles.push_back(filme);
 
     Profile leitura;
-    leitura.name = L"Leitura";
+    leitura.name = T(L"Reading");
     leitura.transitionMs = 800;
     leitura.global.brightness  = 82;
     leitura.global.temperature = 4800;
@@ -642,13 +646,16 @@ void Config::SeedDefaults() {
     leitura.global.contrast    = 96;
     profiles.push_back(leitura);
 
-    defaultProfile = L"Padrão";
+    // Both of these have to resolve through T() as well: they are references to
+    // the names just seeded, and a reference that does not match its profile is
+    // a rule pointing at nothing.
+    defaultProfile = T(L"Default");
 
     ScheduleRule noturno;
     noturno.enabled = false;
     noturno.start = L"21:00";
     noturno.end = L"07:00";
-    noturno.profile = L"Noite";
+    noturno.profile = T(L"Night");
     scheduleRules.push_back(noturno);
 }
 
@@ -811,6 +818,8 @@ SatEngine ParseSatEngine(const std::wstring& s) {
     std::wstring v = ToLower(Trim(s));
     if (v == L"gpu") return SatEngine::Gpu;
     if (v == L"universal") return SatEngine::Universal;
+    // "desligado" is what versions up to 1.0 wrote. It stays accepted so that
+    // an existing configuration keeps loading after the switch to English.
     if (v == L"off" || v == L"desligado") return SatEngine::Off;
     return SatEngine::Auto;
 }
@@ -819,7 +828,7 @@ const wchar_t* SatEngineName(SatEngine e) {
     switch (e) {
         case SatEngine::Gpu: return L"gpu";
         case SatEngine::Universal: return L"universal";
-        case SatEngine::Off: return L"desligado";
+        case SatEngine::Off: return L"off";
         default: return L"auto";
     }
 }
@@ -886,7 +895,13 @@ bool ParseConfigText(const std::wstring& text, Config* cfg) {
             cfg->enableAppRules     = s.Bool(L"regrasPorApp", cfg->enableAppRules);
             cfg->enableSchedule     = s.Bool(L"regrasPorHorario", cfg->enableSchedule);
             cfg->restoreOnExit      = s.Bool(L"restaurarAoSair", cfg->restoreOnExit);
+            cfg->language           = ParseLangChoice(
+                                          s.Str(L"idioma", LangChoiceName(cfg->language)));
+            cfg->performance        = ParsePerformanceMode(
+                                          s.Str(L"desempenho", PerformanceModeName(cfg->performance)));
             cfg->watchdogSeconds    = s.Int(L"reforcarSegundos", cfg->watchdogSeconds);
+            cfg->adaptiveWhileDragging = s.Bool(L"buscaDuranteArraste", cfg->adaptiveWhileDragging);
+            cfg->animateTransitions = s.Bool(L"animarTransicoes", cfg->animateTransitions);
             cfg->enableVendorApis   = s.Bool(L"apisDoFabricante", cfg->enableVendorApis);
             cfg->enableMagnification= s.Bool(L"matrizUniversal", cfg->enableMagnification);
             cfg->enableDdcCi        = s.Bool(L"ddcci", cfg->enableDdcCi);
@@ -926,7 +941,7 @@ bool ParseConfigText(const std::wstring& text, Config* cfg) {
             if (ParseMonitorQuirk(edidId, s.Str(L"regra"), &q))
                 cfg->monitorQuirks.push_back(q);
             else if (!edidId.empty())
-                KLOG_W(L"Regra de modelo '%s' não foi reconhecida e sera ignorada: '%s'",
+                KLOG_W(L"Model rule '%s' was not recognised and will be ignored: '%s'",
                        edidId.c_str(), s.Str(L"regra").c_str());
         }
         else if (lower.rfind(L"perfil:", 0) == 0) {
@@ -994,29 +1009,36 @@ bool LoadConfig(Config* cfg) {
         std::string bak;
         if (ReadWholeFile(bakPath, &bak) && !bak.empty() &&
             ParseConfigText(DecodeText(bak), cfg)) {
-            KLOG_W(L"Configuracao principal sem nada aproveitavel; usando a copia de seguranca.");
+            KLOG_W(L"The main configuration held nothing usable - using the backup copy.");
             parsed = true;
             recoveredFromBak = true;
             // Keeps the bad file for inspection. The .bak may only be deleted
             // AFTER the recovered version is written back to the main file;
             // deleting earlier would leave the good copy nowhere if the machine
             // died in between.
-            if (haveMain) ::CopyFileW(path.c_str(), (path + L".invalido").c_str(), FALSE);
+            if (haveMain) ::CopyFileW(path.c_str(), (path + L".invalid").c_str(), FALSE);
         }
     }
+
+    // Seeding names the shipped profiles, and naming them needs the language
+    // resolved. The window does that later, at the point it starts building
+    // captions, which is well after this. With nothing parsed the choice is
+    // still Auto, so a fresh install on a Portuguese machine seeds Portuguese
+    // names rather than English ones it would then be stuck with.
+    if (!parsed) SetLanguage(cfg->language);
 
     if (!parsed) {
         if (!haveMain) {
             cfg->SeedDefaults();
             SaveConfig(*cfg);
-            KLOG_I(L"Configuracao nova criada em %s", path.c_str());
+            KLOG_I(L"New configuration created at %s", path.c_str());
             return false;
         }
-        KLOG_W(L"Nenhum arquivo valido encontrado; recriando os perfis padrao.");
+        KLOG_W(L"No valid file found - recreating the default profiles.");
         cfg->SeedDefaults();
         // The file existed but yielded nothing usable: keep a copy for
         // inspection instead of overwriting it silently.
-        ::CopyFileW(path.c_str(), (path + L".invalido").c_str(), FALSE);
+        ::CopyFileW(path.c_str(), (path + L".invalid").c_str(), FALSE);
     }
 
     // No value from disk is accepted without being clamped to its valid range.
@@ -1044,17 +1066,17 @@ bool LoadConfig(Config* cfg) {
         ::DeleteFileW(bakPath.c_str());
     }
 
-    KLOG_I(L"Configuracao carregada: %d perfil(is), %d regra(s) de app, %d horario(s).",
+    KLOG_I(L"Configuration loaded: %d profile(s), %d app rule(s), %d schedule(s).",
            (int)cfg->profiles.size(), (int)cfg->appRules.size(), (int)cfg->scheduleRules.size());
     return true;
 }
 
 bool SaveConfig(const Config& cfg) {
     std::wostringstream out;
-    out << L"; Configuracao do Zdisplay — pode ser editada a mao.\r\n";
-    out << L"; Valores neutros: brilho/contraste/saturacao 100, gamma 1, temperatura 6500,\r\n";
-    out << L"; vibrance 0, matiz 0, sombras 0, definicao 0. Use -1 em\r\n";
-    out << L"; brilhoHw/contrasteHw para nao gerenciar.\r\n\r\n";
+    out << L"; Zdisplay configuration - it can be edited by hand.\r\n";
+    out << L"; Neutral values: brightness/contrast/saturation 100, gamma 1, temperature 6500,\r\n";
+    out << L"; vibrance 0, hue 0, shadows 0, clarity 0. Use -1 in\r\n";
+    out << L"; brilhoHw/contrasteHw to leave them unmanaged.\r\n\r\n";
 
     out << L"[geral]\r\n";
     out << L"perfilPadrao="          << cfg.defaultProfile << L"\r\n";
@@ -1063,7 +1085,11 @@ bool SaveConfig(const Config& cfg) {
     out << L"regrasPorApp="          << (cfg.enableAppRules ? L"1" : L"0") << L"\r\n";
     out << L"regrasPorHorario="      << (cfg.enableSchedule ? L"1" : L"0") << L"\r\n";
     out << L"restaurarAoSair="       << (cfg.restoreOnExit ? L"1" : L"0") << L"\r\n";
+    out << L"idioma="                << LangChoiceName(cfg.language) << L"\r\n";
+    out << L"desempenho="            << PerformanceModeName(cfg.performance) << L"\r\n";
     out << L"reforcarSegundos="      << cfg.watchdogSeconds << L"\r\n";
+    out << L"buscaDuranteArraste="   << (cfg.adaptiveWhileDragging ? L"1" : L"0") << L"\r\n";
+    out << L"animarTransicoes="      << (cfg.animateTransitions ? L"1" : L"0") << L"\r\n";
     out << L"apisDoFabricante="      << (cfg.enableVendorApis ? L"1" : L"0") << L"\r\n";
     out << L"matrizUniversal="       << (cfg.enableMagnification ? L"1" : L"0") << L"\r\n";
     out << L"ddcci="                 << (cfg.enableDdcCi ? L"1" : L"0") << L"\r\n";
@@ -1148,7 +1174,7 @@ bool SaveConfig(const Config& cfg) {
 
     std::string utf8 = "\xEF\xBB\xBF" + WideToUtf8(out.str());
     if (!WriteWholeFile(tmpPath, utf8)) {
-        KLOG_E(L"Nao consegui gravar a configuracao.");
+        KLOG_E(L"Could not write the configuration.");
         return false;
     }
 
@@ -1163,7 +1189,7 @@ bool SaveConfig(const Config& cfg) {
 
     if (!::MoveFileExW(tmpPath.c_str(), finalPath.c_str(),
                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        KLOG_E(L"Nao consegui substituir a configuracao (erro %lu).", ::GetLastError());
+        KLOG_E(L"Could not replace the configuration (error %lu).", ::GetLastError());
         return false;
     }
     return true;
@@ -1171,7 +1197,7 @@ bool SaveConfig(const Config& cfg) {
 
 bool ExportProfiles(const std::wstring& path, const std::vector<Profile>& profiles) {
     std::wostringstream out;
-    out << L"; Perfis do Zdisplay exportados. Importe pela aba Perfis.\r\n\r\n";
+    out << L"; Zdisplay profiles exported. Import them from the Profiles tab.\r\n\r\n";
     for (const auto& p : profiles) {
         out << L"[perfil:" << p.name << L"]\r\n";
         out << L"atalho="         << p.hotkey << L"\r\n";
@@ -1332,7 +1358,7 @@ bool LoadBaseline(Baseline* b) {
     // baseline must fall through to the .bak as well, otherwise the current
     // adjustment ends up saved over the original display state.
     if (!ReadWholeFile(BaselinePath() + L".bak", &raw)) return false;
-    KLOG_W(L"baseline.dat ilegivel ou incompleto; usando a copia de seguranca.");
+    KLOG_W(L"baseline.dat unreadable or incomplete - using the backup copy.");
     return ParseBaseline(raw, b);
 }
 
@@ -1979,34 +2005,88 @@ std::wstring VcpValueName(unsigned char code, unsigned char value) {
     struct Entry { unsigned char code, value; const wchar_t* name; };
     static const Entry kNames[] = {
         // 0x14 — color preset.
-        {0x14, 0x01, L"sRGB"},          {0x14, 0x02, L"nativa do painel"},
+        {0x14, 0x01, L"sRGB"},          {0x14, 0x02, L"panel native"},
         {0x14, 0x03, L"4000 K"},        {0x14, 0x04, L"5000 K"},
         {0x14, 0x05, L"6500 K"},        {0x14, 0x06, L"7500 K"},
         {0x14, 0x07, L"8200 K"},        {0x14, 0x08, L"9300 K"},
         {0x14, 0x09, L"10000 K"},       {0x14, 0x0A, L"11500 K"},
-        {0x14, 0x0B, L"usuário 1"},     {0x14, 0x0C, L"usuário 2"},
-        {0x14, 0x0D, L"usuário 3"},
+        {0x14, 0x0B, L"user 1"},     {0x14, 0x0C, L"user 2"},
+        {0x14, 0x0D, L"user 3"},
         // 0x60 — input source.
         {0x60, 0x01, L"VGA 1"},         {0x60, 0x02, L"VGA 2"},
         {0x60, 0x03, L"DVI 1"},         {0x60, 0x04, L"DVI 2"},
-        {0x60, 0x05, L"composto 1"},    {0x60, 0x06, L"composto 2"},
+        {0x60, 0x05, L"composite 1"},    {0x60, 0x06, L"composite 2"},
         {0x60, 0x07, L"S-Video 1"},     {0x60, 0x08, L"S-Video 2"},
         {0x60, 0x09, L"tuner 1"},       {0x60, 0x0A, L"tuner 2"},
-        {0x60, 0x0B, L"tuner 3"},       {0x60, 0x0C, L"componente 1"},
-        {0x60, 0x0D, L"componente 2"},  {0x60, 0x0E, L"componente 3"},
+        {0x60, 0x0B, L"tuner 3"},       {0x60, 0x0C, L"component 1"},
+        {0x60, 0x0D, L"component 2"},  {0x60, 0x0E, L"component 3"},
         {0x60, 0x0F, L"DisplayPort 1"}, {0x60, 0x10, L"DisplayPort 2"},
         {0x60, 0x11, L"HDMI 1"},        {0x60, 0x12, L"HDMI 2"},
         // Non-standard but common: several vendors use these for USB-C.
         {0x60, 0x1B, L"USB-C"},         {0x60, 0x1C, L"USB-C 2"},
         {0x60, 0x19, L"HDMI 3"},        {0x60, 0x1A, L"HDMI 4"},
         // 0xD6 — power mode.
-        {0xD6, 0x01, L"ligado"},        {0xD6, 0x02, L"espera"},
-        {0xD6, 0x03, L"suspenso"},      {0xD6, 0x04, L"desligado (software)"},
-        {0xD6, 0x05, L"desligado"},
+        {0xD6, 0x01, L"on"},        {0xD6, 0x02, L"standby"},
+        {0xD6, 0x03, L"suspended"},      {0xD6, 0x04, L"off (software)"},
+        {0xD6, 0x05, L"off"},
     };
     for (const auto& e : kNames)
         if (e.code == code && e.value == value) return e.name;
     return std::wstring();
+}
+
+const wchar_t* PerformanceModeName(PerformanceMode m) {
+    switch (m) {
+        case PerformanceMode::Quality: return L"qualidade";
+        case PerformanceMode::Light:   return L"leve";
+        case PerformanceMode::Balanced:
+        default:                       return L"equilibrado";
+    }
+}
+
+PerformanceMode ParsePerformanceMode(const std::wstring& text) {
+    const std::wstring value = ToLower(Trim(text));
+    if (value == L"qualidade" || value == L"quality") return PerformanceMode::Quality;
+    if (value == L"leve" || value == L"light")        return PerformanceMode::Light;
+    // Unrecognised text falls back to the middle mode rather than to an
+    // extreme: a typo must not silently triple the program's wake-up rate.
+    return PerformanceMode::Balanced;
+}
+
+PerformanceParams ParamsFor(PerformanceMode m) {
+    PerformanceParams p{};
+    switch (m) {
+        case PerformanceMode::Quality:
+            // Reacts to another program stealing the ramp within a few seconds,
+            // and reaches the maximum accepted effect during the drag instead of
+            // after it.
+            p.watchdogSeconds = 5;
+            p.adaptiveWhileDragging = true;
+            p.animateTransitions = true;
+            break;
+        case PerformanceMode::Light:
+            // The two continuous costs the program has are the watchdog and the
+            // transition frames, so both are cut. Every backend stays up.
+            p.watchdogSeconds = 30;
+            p.adaptiveWhileDragging = false;
+            p.animateTransitions = false;
+            break;
+        case PerformanceMode::Balanced:
+        default:
+            p.watchdogSeconds = 10;
+            p.adaptiveWhileDragging = false;
+            p.animateTransitions = true;
+            break;
+    }
+    return p;
+}
+
+void ApplyPerformanceMode(Config* cfg) {
+    if (!cfg) return;
+    const PerformanceParams p = ParamsFor(cfg->performance);
+    cfg->watchdogSeconds = p.watchdogSeconds;
+    cfg->adaptiveWhileDragging = p.adaptiveWhileDragging;
+    cfg->animateTransitions = p.animateTransitions;
 }
 
 const wchar_t* DdcMonitorModeName(DdcMonitorMode mode) {
@@ -2036,12 +2116,12 @@ namespace {
 /// enough that it should not be discovered on a user's machine.
 const MonitorQuirk kBuiltinQuirks[] = {
     // Firmware that takes down the video driver on receiving DDC/CI.
-    { L"LTM2C02", true,  0,    false, L"o firmware derruba o driver de vídeo" },
-    { L"GSM7714", true,  0,    false, L"o firmware derruba o driver de vídeo" },
+    { L"LTM2C02", true,  0,    false, L"the firmware takes down the video driver" },
+    { L"GSM7714", true,  0,    false, L"the firmware takes down the video driver" },
     // Fujitsu panels that answer brightness on a private register: the standard
     // 0x10 accepts the command and changes nothing, a silent failure.
-    { L"FUS087C", false, 0x6B, false, L"usa o registrador 0x6B para brilho" },
-    { L"FUS06AB", false, 0x13, false, L"usa o registrador 0x13 para brilho" },
+    { L"FUS087C", false, 0x6B, false, L"uses register 0x6B for brightness" },
+    { L"FUS06AB", false, 0x13, false, L"uses register 0x13 for brightness" },
 };
 
 std::vector<MonitorQuirk> g_userQuirks;
@@ -2202,25 +2282,25 @@ std::wstring VcpFeatureName(unsigned char code) {
     // vendor-specific, and inventing names for them would mislead anyone trying
     // to understand an unusual monitor.
     static const Entry kCodes[] = {
-        {0x02, L"novo valor de controle"}, {0x04, L"restaurar padrao de fabrica"},
-        {0x05, L"restaurar brilho/contraste de fabrica"},
-        {0x08, L"restaurar cor de fabrica"},
-        {0x0B, L"incremento de temperatura de cor"},
-        {0x0C, L"temperatura de cor"},     {0x10, L"brilho"},
-        {0x12, L"contraste"},              {0x14, L"predefinicao de cor"},
-        {0x16, L"ganho do vermelho"},      {0x18, L"ganho do verde"},
-        {0x1A, L"ganho do azul"},          {0x1E, L"ajuste automatico"},
-        {0x20, L"posicao horizontal"},     {0x30, L"posicao vertical"},
-        {0x52, L"controle ativo"},         {0x60, L"fonte de entrada"},
-        {0x62, L"volume"},                 {0x6C, L"nivel de preto do vermelho"},
-        {0x6E, L"nivel de preto do verde"},{0x70, L"nivel de preto do azul"},
-        {0x86, L"modo de escala"},         {0x8D, L"mudo"},
-        {0xAC, L"frequencia horizontal"},  {0xAE, L"frequencia vertical"},
-        {0xB2, L"tipo de subpixel"},       {0xB6, L"tecnologia do painel"},
-        {0xC0, L"horas de uso"},           {0xC6, L"chave de ativacao"},
-        {0xC8, L"tipo de controlador"},    {0xC9, L"versao do firmware"},
-        {0xCA, L"controle do menu do monitor"}, {0xCC, L"idioma do menu"},
-        {0xD6, L"modo de energia"},        {0xDF, L"versao do VCP"},
+        {0x02, L"new control value"},      {0x04, L"restore factory defaults"},
+        {0x05, L"restore factory brightness/contrast"},
+        {0x08, L"restore factory color"},
+        {0x0B, L"color temperature increment"},
+        {0x0C, L"color temperature"},      {0x10, L"brightness"},
+        {0x12, L"contrast"},               {0x14, L"color preset"},
+        {0x16, L"red gain"},               {0x18, L"green gain"},
+        {0x1A, L"blue gain"},              {0x1E, L"auto setup"},
+        {0x20, L"horizontal position"},    {0x30, L"vertical position"},
+        {0x52, L"active control"},         {0x60, L"input source"},
+        {0x62, L"volume"},                 {0x6C, L"red black level"},
+        {0x6E, L"green black level"},      {0x70, L"blue black level"},
+        {0x86, L"scaling mode"},           {0x8D, L"mute"},
+        {0xAC, L"horizontal frequency"},   {0xAE, L"vertical frequency"},
+        {0xB2, L"subpixel layout"},        {0xB6, L"panel technology"},
+        {0xC0, L"usage hours"},            {0xC6, L"application enable key"},
+        {0xC8, L"controller type"},        {0xC9, L"firmware version"},
+        {0xCA, L"OSD control"},            {0xCC, L"OSD language"},
+        {0xD6, L"power mode"},             {0xDF, L"VCP version"},
     };
     for (const auto& e : kCodes)
         if (e.code == code) return e.name;
@@ -2681,9 +2761,9 @@ bool Refresh() {
                        m.edid.serialText.empty() ? L"" : (L"  s/n " + m.edid.serialText).c_str(),
                        m.edid.gamutArea, m.edid.wideGamut ? L" (gamut largo)" : L"");
             else
-                KLOG_W(L"      sem EDID valido: identidade cai para o caminho do dispositivo");
+                KLOG_W(L"      no valid EDID: identity falls back to the device path");
             if (m.isHdr)
-                KLOG_W(L"      HDR ligado: a rampa de gamma nao vale nesta tela");
+                KLOG_W(L"      HDR on: the gamma ramp does not apply on this display");
         }
     }
     return changed;
@@ -2734,7 +2814,7 @@ int MigrateKeys(Config* c) {
         ++changed;
     }
     if (changed)
-        KLOG_I(L"Migradas %d sobrescritas de monitor para a identidade do EDID.", changed);
+        KLOG_I(L"Migrated %d monitor overrides to the EDID identity.", changed);
     return changed;
 }
 

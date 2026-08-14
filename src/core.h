@@ -1,5 +1,6 @@
 #pragma once
 #include "common.h"
+#include "strings.h"
 
 namespace zdisplay {
 
@@ -90,7 +91,7 @@ enum class SatEngine {
 };
 
 struct Profile {
-    std::wstring name = L"Novo perfil";
+    std::wstring name = L"New profile";
     Adjustments  global;
     /// Per-monitor overrides, indexed by the stable monitor key.
     std::map<std::wstring, Adjustments> perMonitor;
@@ -236,6 +237,75 @@ struct ScheduleRule {
 
 // Configuration
 
+/// How much continuous work the program gives itself permission to do.
+///
+/// The modes trade cost against smoothness and reaction time, and nothing else:
+/// none of them turns a backend off, so changing mode can never make a control
+/// stop working. That is the whole point of the setting being safe to offer.
+enum class PerformanceMode { Quality = 0, Balanced = 1, Light = 2 };
+
+const wchar_t* PerformanceModeName(PerformanceMode m);
+PerformanceMode ParsePerformanceMode(const std::wstring& text);
+
+/// What a mode stands for, as data rather than as conditionals spread across
+/// the engine. Pure, so the suite checks every mode without any hardware.
+struct PerformanceParams {
+    /// Interval of the watchdog that rewrites the ramp after another program
+    /// overwrites it. Lower reacts sooner and wakes the CPU more often.
+    int  watchdogSeconds;
+    /// Run the full adaptive ramp search while a slider is being dragged,
+    /// instead of the single write that the settle pass completes afterwards.
+    /// Only affects how quickly the final value is reached, never whether it is.
+    bool adaptiveWhileDragging;
+    /// Animate profile changes. With this off a switch is immediate, which
+    /// costs no frames at all.
+    bool animateTransitions;
+};
+
+PerformanceParams ParamsFor(PerformanceMode m);
+
+/// Position of each choice in the drop-downs the settings window builds.
+///
+/// Written out rather than cast from the enum, so that reordering a list cannot
+/// silently store a different value than the one that was picked, and kept here
+/// rather than beside the window so the suite can check them against the order
+/// the lists are actually filled in.
+///
+/// Language leads with English because it is the project's primary language,
+/// which is deliberately not the enum order. Performance runs heaviest to
+/// lightest, which happens to match it.
+inline LangChoice LanguageChoiceAt(int index) {
+    switch (index) {
+        case 1:  return LangChoice::En;
+        case 2:  return LangChoice::Pt;
+        default: return LangChoice::Auto;
+    }
+}
+
+inline int LanguageIndexOf(LangChoice c) {
+    switch (c) {
+        case LangChoice::En: return 1;
+        case LangChoice::Pt: return 2;
+        default:             return 0;
+    }
+}
+
+inline PerformanceMode PerformanceModeAt(int index) {
+    switch (index) {
+        case 0:  return PerformanceMode::Quality;
+        case 2:  return PerformanceMode::Light;
+        default: return PerformanceMode::Balanced;
+    }
+}
+
+inline int PerformanceIndexOf(PerformanceMode m) {
+    switch (m) {
+        case PerformanceMode::Quality: return 0;
+        case PerformanceMode::Light:   return 2;
+        default:                       return 1;
+    }
+}
+
 enum class DdcMonitorMode { Auto = 0, Slow = 1, Disabled = 2 };
 const wchar_t* DdcMonitorModeName(DdcMonitorMode mode);
 DdcMonitorMode ParseDdcMonitorMode(const std::wstring& text);
@@ -284,7 +354,7 @@ struct Config {
     std::vector<Profile>      profiles;
     std::vector<AppRule>      appRules;
     std::vector<ScheduleRule> scheduleRules;
-    std::wstring              defaultProfile = L"Padrão";
+    std::wstring              defaultProfile = L"Default";
 
     bool startWithWindows = false;
     bool startMinimized   = true;
@@ -292,9 +362,21 @@ struct Config {
     bool enableSchedule   = true;
     bool restoreOnExit    = true;
 
+    /// Interface language. `Auto` follows the Windows UI language.
+    LangChoice language = LangChoice::Auto;
+
+    /// Cost profile. Picking one writes the three fields below, so the values
+    /// in effect stay visible and hand-editable in the file instead of being
+    /// implied by an enum the user cannot see.
+    PerformanceMode performance = PerformanceMode::Balanced;
+
     /// Reasserts the adjustments every N seconds, guarding against other
     /// software that overwrites the gamma ramp. 0 disables it.
     int  watchdogSeconds  = 10;
+    /// Full adaptive ramp search during a drag (see PerformanceParams).
+    bool adaptiveWhileDragging = false;
+    /// Animate profile changes (see PerformanceParams).
+    bool animateTransitions = true;
 
     bool enableVendorApis   = true;   // NVAPI / ADL
     bool enableMagnification = true;  // universal color matrix
@@ -347,6 +429,13 @@ struct Config {
 
     void SeedDefaults();
 };
+
+/// Writes the chosen mode's parameters into the configuration.
+///
+/// Called when the user picks a mode, never on load: a configuration that was
+/// hand-edited keeps the values it states, and the stored mode only records
+/// which preset was applied last so the interface can show it selected.
+void ApplyPerformanceMode(Config* cfg);
 
 /// Hand-readable and hand-editable INI file, written atomically.
 bool LoadConfig(Config* cfg);

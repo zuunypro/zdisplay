@@ -46,7 +46,7 @@ else
   DEL   = rm -f $(1)
 endif
 
-SRC := src/common.cpp src/core.cpp src/icon.cpp \
+SRC := src/common.cpp src/core.cpp src/strings.cpp src/icon.cpp \
        src/backends_display.cpp src/backends_vendor.cpp src/backends_hw.cpp \
        src/engine.cpp src/services.cpp \
        src/ui_app.cpp src/ui_settings.cpp src/ui_events.cpp src/ui_guard.cpp \
@@ -111,9 +111,15 @@ $(BUILDDIR)/zdisplay.exe: $(OBJ) $(BUILDDIR)/zdisplay_res.o
 # The copy fails while a running zdisplay.exe holds the file. That is not a build
 # error — the new binary is complete inside build/ — so it is reported as a
 # warning.
+#
+# The message carries no ';' and no parentheses on purpose. A POSIX shell reads
+# an unquoted ';' as a command separator, so the rest of the warning becomes a
+# command of its own and the build ends with "command not found" even when the
+# copy succeeded. Quoting is not the fix either: cmd.exe would then print the
+# quotes.
 zdisplay.exe: $(BUILDDIR)/zdisplay.exe
-	@$(call COPY,$<,$@) || echo AVISO: zdisplay.exe em uso; o binario novo esta em $(call EXEPATH,$<)
-	@echo Pronto.
+	@$(call COPY,$<,$@) || echo WARNING: zdisplay.exe is in use - the new binary is at $(call EXEPATH,$<)
+	@echo Done.
 
 $(BUILDDIR)/%.o: src/%.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

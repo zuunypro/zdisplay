@@ -2,7 +2,29 @@
 #include "engine.h"
 #include "services.h"
 
+// Device arrival and removal broadcasts. Not reached through windows.h, which
+// leaves dbt.h out under WIN32_LEAN_AND_MEAN.
+#include <dbt.h>
+
 namespace zdisplay {
+
+// The drop-down index mappings live in core.h, where the test suite can reach
+// them: a mapping that drifts from the order the list is filled in stores a
+// different value than the one the user picked, and does it silently.
+
+inline const wchar_t* PerformanceHintFor(PerformanceMode m) {
+    switch (m) {
+        case PerformanceMode::Quality:
+            return T(L"Reasserts every 5 s and searches for the maximum effect "
+                     L"even while a slider is moving.");
+        case PerformanceMode::Light:
+            return T(L"Lowest cost: reasserts every 30 s and switches profile "
+                     L"without animation. No feature is turned off.");
+        default:
+            return T(L"The default: reasserts every 10 s and completes the "
+                     L"search once the slider stops.");
+    }
+}
 
 // Defined in icon.cpp.
 HICON CreateAppIcon(int size);
@@ -172,6 +194,7 @@ private:
     bool trayAdded_ = false;
     bool sessionNotifyOk_ = false;
     HPOWERNOTIFY displayNotify_ = nullptr;  ///< display on/off notification
+    HDEVNOTIFY   deviceNotify_ = nullptr;   ///< monitor arrival and removal
     UINT taskbarCreatedMsg_ = 0;
 
     Config config_;
@@ -265,7 +288,9 @@ private:
          checkSchedule_ = nullptr, checkRestore_ = nullptr, watchdogEdit_ = nullptr,
          checkVendor_ = nullptr, checkMagnify_ = nullptr, checkDdc_ = nullptr,
          checkBacklight_ = nullptr, checkOverlay_ = nullptr, unlockButton_ = nullptr,
-         checkConfirmDark_ = nullptr, checkMirrorKeys_ = nullptr;
+         checkConfirmDark_ = nullptr, checkMirrorKeys_ = nullptr,
+         languageCombo_ = nullptr, performanceCombo_ = nullptr,
+         performanceHint_ = nullptr;
     HWND hkEdits_[7] = {};
     HWND stepEdit_ = nullptr;
     /// Warning line for the hotkeys Windows refused. Empty when every

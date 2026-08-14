@@ -159,6 +159,15 @@ public:
     void OnDisplayChanged();
     void OnResume();
 
+    /// A monitor device arrived or left, which is not always a layout change.
+    ///
+    /// Swapping the panel on a KVM, or a dock that publishes the monitor after
+    /// the video topology has already settled, produces no WM_DISPLAYCHANGE.
+    /// Only the staged rediscovery is armed here, never an immediate one: the
+    /// notification fires several times per plug, and the staged path re-arms
+    /// its timer, so a burst collapses into a single pass.
+    void OnDeviceChanged();
+
     /// The user session moved to the background (fast user switching) or came
     /// back. While it is behind, the screen belongs to another session, so
     /// reasserting there is wasted work and fights the other session's instance

@@ -111,7 +111,7 @@ if errorlevel 1 goto :fail
 
 rem ----------------------------------------------------------------- installer
 echo Compilando o instalador...
-%CXX% %F_STD% %F_WARN% %F_REL% setup_ui.cpp setup_work.cpp build\setup_res.o -o build\zdisplay-setup.exe %F_LD% %F_LDREL% %SETUP_LIBS%
+%CXX% %F_STD% %F_WARN% %F_REL% setup_ui.cpp setup_work.cpp setup_text.cpp build\setup_res.o -o build\zdisplay-setup.exe %F_LD% %F_LDREL% %SETUP_LIBS%
 if errorlevel 1 goto :fail
 
 echo Verificando o instalador...

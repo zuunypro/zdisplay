@@ -17,6 +17,16 @@
 
 namespace setup {
 
+// Interface language
+//
+// English is the primary language and is the key each message is written as, so
+// a call site reads as the sentence it produces. The installer runs before any
+// configuration exists, so it follows the Windows UI language and nothing else.
+/// Reads the Windows UI language. Called once, before any text is produced.
+void DetectLanguage();
+/// Translation of an English message, or the message itself when there is none.
+const wchar_t* Text(const wchar_t* english);
+
 // Identity
 extern const wchar_t* const kAppName;      ///< "Zdisplay"
 extern const wchar_t* const kExeName;      ///< "zdisplay.exe"

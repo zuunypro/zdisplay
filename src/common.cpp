@@ -177,8 +177,8 @@ void LogWrite(LogLevel level, const wchar_t* fmt, ...) {
     switch (level) {
         case LogLevel::Debug: tag = L"DEBUG"; break;
         case LogLevel::Info:  tag = L"INFO";  break;
-        case LogLevel::Warn:  tag = L"AVISO"; break;
-        case LogLevel::Error: tag = L"ERRO";  break;
+        case LogLevel::Warn:  tag = L"WARN"; break;
+        case LogLevel::Error: tag = L"ERROR";  break;
     }
 
     SYSTEMTIME st;

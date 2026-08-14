@@ -60,12 +60,23 @@ int SelectedRow(HWND listView) {
 /// File dialog used by profile export and import.
 bool PickFile(HWND owner, bool save, std::wstring* path) {
     wchar_t buf[MAX_PATH * 2] = {};
-    if (save) wcscpy_s(buf, L"zdisplay-perfis.ini");
+    if (save) wcscpy_s(buf, L"zdisplay-profiles.ini");
+
+    // The filter is a run of strings closed by a double NUL, so it is assembled
+    // here rather than written as one literal: a translated fragment cannot
+    // carry the embedded NULs that separate the entries.
+    std::wstring filter;
+    for (const wchar_t* part : { T(L"Zdisplay profiles (*.ini)"), L"*.ini",
+                                 T(L"All files"), L"*.*" }) {
+        filter += part;
+        filter.push_back(L'\0');
+    }
+    filter.push_back(L'\0');
 
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = owner;
-    ofn.lpstrFilter = L"Perfis do Zdisplay (*.ini)\0*.ini\0Todos os arquivos\0*.*\0";
+    ofn.lpstrFilter = filter.c_str();
     ofn.lpstrFile = buf;
     ofn.nMaxFile = _countof(buf);
     ofn.lpstrDefExt = L"ini";
@@ -375,7 +386,7 @@ void App::OnCommand(int id, HWND control, int code) {
             return;
 
         case IDC_PAUSE_BTN:
-            TogglePause(L"botão Pausar");
+            TogglePause(L"Pause button");
             return;
 
         case IDC_INVERT: {
@@ -456,19 +467,18 @@ void App::OnCommand(int id, HWND control, int code) {
                 // discarded without an error, so the reason is explained here.
                 if (ToastsGloballyOff()) {
                     const int r = ::MessageBoxW(settings_,
-                        L"As notificações estão desligadas no Windows, então "
-                        L"este aviso não apareceria na tela.\n\n"
-                        L"Quer abrir Configurações > Sistema > Notificações "
-                        L"para ligar?",
+                        T(L"Notifications are turned off in Windows, so this reminder "
+                          L"would never reach the screen.\n\n"
+                          L"Open Settings > System > Notifications to turn them on?"),
                         L"Zdisplay", MB_YESNO | MB_ICONWARNING);
                     if (r == IDYES)
                         ::ShellExecuteW(settings_, L"open", L"ms-settings:notifications",
                                         nullptr, nullptr, SW_SHOWNORMAL);
                     return;
                 }
-                ShowTrayBalloon(L"Zdisplay — pausa para os olhos",
-                                L"Olhe 20 segundos para algo a uns 6 metros. "
-                                L"Isso relaxa o músculo que mantém o foco de perto.");
+                ShowTrayBalloon(T(L"Zdisplay — eye break"),
+                                T(L"Look at something about 6 metres away for 20 seconds. "
+                                  L"That relaxes the muscle holding your near focus."));
             }
             return;
 
@@ -500,7 +510,7 @@ void App::OnCommand(int id, HWND control, int code) {
 
         case IDC_PROFILE_NEW: {
             Profile p;
-            p.name = config_.UniqueName(L"Perfil");
+            p.name = config_.UniqueName(T(L"Profile"));
             config_.profiles.push_back(p);
             MarkDirty();
             engine_->OnProfilesChanged();
@@ -529,12 +539,12 @@ void App::OnCommand(int id, HWND control, int code) {
             const int idx = (int)::SendMessageW(profileList_, LB_GETCURSEL, 0, 0);
             if (idx < 0 || (size_t)idx >= config_.profiles.size()) return;
             if (config_.profiles.size() <= 1) {
-                ::MessageBoxW(settings_, L"E preciso manter pelo menos um perfil.",
+                ::MessageBoxW(settings_, T(L"At least one profile has to be kept."),
                               L"Zdisplay", MB_OK | MB_ICONINFORMATION);
                 return;
             }
             const std::wstring name = config_.profiles[(size_t)idx].name;
-            const std::wstring question = L"Excluir o perfil '" + name + L"'?";
+            const std::wstring question = Format(T(L"Delete the profile '%s'?"), name.c_str());
             if (::MessageBoxW(settings_, question.c_str(), L"Zdisplay",
                               MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 
@@ -573,7 +583,7 @@ void App::OnCommand(int id, HWND control, int code) {
             if (!PickFile(settings_, true, &path)) return;
             const bool ok = ExportProfiles(path, config_.profiles);
             ::MessageBoxW(settings_,
-                          ok ? L"Perfis exportados." : L"Não consegui gravar o arquivo.",
+                          ok ? T(L"Profiles exported.") : T(L"Could not write the file."),
                           L"Zdisplay", MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONWARNING));
             return;
         }
@@ -583,7 +593,7 @@ void App::OnCommand(int id, HWND control, int code) {
             if (!PickFile(settings_, false, &path)) return;
             std::vector<Profile> imported;
             if (!ImportProfiles(path, &imported) || imported.empty()) {
-                ::MessageBoxW(settings_, L"Nenhum perfil válido no arquivo.",
+                ::MessageBoxW(settings_, T(L"No valid profile in the file."),
                               L"Zdisplay", MB_OK | MB_ICONWARNING);
                 return;
             }
@@ -596,7 +606,7 @@ void App::OnCommand(int id, HWND control, int code) {
             SaveConfig(config_);
             ReloadProfileCombos();
             LoadProfileEditor();
-            const std::wstring msg = std::to_wstring(imported.size()) + L" perfil(is) importado(s).";
+            const std::wstring msg = Format(T(L"%d profile(s) imported."), (int)imported.size());
             ::MessageBoxW(settings_, msg.c_str(), L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             return;
         }
@@ -606,7 +616,7 @@ void App::OnCommand(int id, HWND control, int code) {
         case IDC_APP_UPDATE: {
             const std::wstring process = Trim(GetTextOf(appProcessEdit_));
             if (process.empty()) {
-                ::MessageBoxW(settings_, L"Informe o nome do processo (ex.: cs2, chrome).",
+                ::MessageBoxW(settings_, T(L"Enter the process name (for example cs2, chrome)."),
                               L"Zdisplay", MB_OK | MB_ICONINFORMATION);
                 return;
             }
@@ -641,7 +651,7 @@ void App::OnCommand(int id, HWND control, int code) {
         case IDC_APP_PICK: {
             const std::wstring fg = engine_->ForegroundProcess();
             if (fg.empty()) {
-                ::MessageBoxW(settings_, L"Ainda não detectei nenhum programa em foco.",
+                ::MessageBoxW(settings_, T(L"No program in focus has been detected yet."),
                               L"Zdisplay", MB_OK | MB_ICONINFORMATION);
                 return;
             }
@@ -665,8 +675,8 @@ void App::OnCommand(int id, HWND control, int code) {
             // accepted alongside clock times.
             if (!IsValidRuleTime(r.start) || !IsValidRuleTime(r.end)) {
                 ::MessageBoxW(settings_,
-                              L"Use o relógio (21:30) ou o próprio sol: "
-                              L"'por', 'nascer', 'por-30', 'nascer+45'.",
+                              T(L"Use a clock time (21:30) or the sun itself: "
+                                L"'sunset', 'sunrise', 'sunset-30', 'sunrise+45'."),
                               L"Zdisplay", MB_OK | MB_ICONINFORMATION);
                 return;
             }
@@ -739,10 +749,40 @@ void App::OnCommand(int id, HWND control, int code) {
             MarkDirty();
             if (!config_.confirmDarkSettings) {
                 ::MessageBoxW(settings_,
-                    L"A confirmação está desligada. Se um ajuste deixar a tela "
-                    L"escura demais, use o atalho de emergência (por padrão "
-                    L"Ctrl+Alt+Shift+K) para devolver a tela.",
+                    T(L"The confirmation is off. If an adjustment leaves the screen too "
+                      L"dark, use the emergency hotkey (Ctrl+Alt+Shift+K by default) to "
+                      L"get the display back."),
                     L"Zdisplay", MB_OK | MB_ICONWARNING);
+            }
+            return;
+
+        case IDC_LANGUAGE:
+            if (code == CBN_SELCHANGE && !loadingUi_) {
+                const int i = (int)::SendMessageW(languageCombo_, CB_GETCURSEL, 0, 0);
+                config_.language = LanguageChoiceAt(i);
+                MarkDirty();
+                // Installed now so the next window built is in the new language,
+                // but the open one is left alone: rewriting every caption in
+                // place would still miss the ones measured at creation.
+                SetLanguage(config_.language);
+                ::MessageBoxW(settings_,
+                              T(L"The language is applied when this window is reopened."),
+                              L"Zdisplay",
+                              MB_OK | MB_ICONINFORMATION);
+            }
+            return;
+
+        case IDC_PERFORMANCE:
+            if (code == CBN_SELCHANGE && !loadingUi_) {
+                const int i = (int)::SendMessageW(performanceCombo_, CB_GETCURSEL, 0, 0);
+                config_.performance = PerformanceModeAt(i);
+                // Writes the mode's parameters into the configuration, so what
+                // is in effect stays visible in the file and in the field below.
+                ApplyPerformanceMode(&config_);
+                SetTextOf(watchdogEdit_, std::to_wstring(config_.watchdogSeconds));
+                SetTextOf(performanceHint_, PerformanceHintFor(config_.performance));
+                engine_->UpdateWatchdogInterval();
+                MarkDirty();
             }
             return;
 
@@ -813,11 +853,11 @@ void App::OnCommand(int id, HWND control, int code) {
             // way back is the panel button, not the program.
             if (vcp == kVcpPowerMode && values[sel] != 0x01) {
                 if (::MessageBoxW(settings_,
-                        L"Vou colocar este monitor em modo de baixa energia.\n\n"
-                        L"Alguns monitores só voltam pelo botão do painel: eles param\n"
-                        L"de responder a DDC/CI enquanto estão desligados.\n\n"
-                        L"Continuar?",
-                        L"Zdisplay — energia do monitor",
+                        T(L"This monitor is about to go into low power mode.\n\n"
+                          L"Some monitors only come back through the button on the panel:\n"
+                          L"they stop answering DDC/CI while they are off.\n\n"
+                          L"Continue?"),
+                        T(L"Zdisplay — monitor power"),
                         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
                     LoadMonitorFeatures();   // revert the combo selection
                     return;
@@ -845,24 +885,24 @@ void App::OnCommand(int id, HWND control, int code) {
 
         case IDC_UNLOCK_GAMMA: {
             const int answer = ::MessageBoxW(settings_,
-                L"Isto grava GdiIcmGammaRange=256 no registro do Windows, liberando "
-                L"brilho e contraste bem além do limite padrão.\n\n"
-                L"Precisa de permissão de administrador e só passa a valer depois de "
-                L"reiniciar a sessão do Windows.\n\nContinuar?",
+                T(L"This writes GdiIcmGammaRange=256 into the Windows registry, "
+                  L"unlocking brightness and contrast well beyond the standard limit.\n\n"
+                  L"It needs administrator permission and only takes effect after "
+                  L"signing out of Windows.\n\nContinue?"),
                 L"Zdisplay", MB_YESNO | MB_ICONWARNING);
             if (answer != IDYES) return;
 
             if (GammaBackend::TryUnlockRange(true)) {
-                SetTextOf(unlockButton_, L"Restaurar a faixa padrão do Windows (admin)");
+                SetTextOf(unlockButton_, T(L"Restore the standard Windows range (admin)"));
                 ::SetWindowLongPtrW(unlockButton_, GWLP_ID, IDC_RELOCK_GAMMA);
                 ::MessageBoxW(settings_,
-                    L"Pronto. A faixa completa passa a valer depois de reiniciar a "
-                    L"sessão do Windows.\n\nEste mesmo botão agora desfaz a alteração.",
+                    T(L"Done. The full range takes effect after you sign out of "
+                      L"Windows.\n\nThis same button now undoes the change."),
                     L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             } else {
                 ::MessageBoxW(settings_,
-                    L"Não consegui gravar no registro. Feche o Zdisplay e execute-o como "
-                    L"administrador uma única vez para aplicar esta opção.",
+                    T(L"Could not write to the registry. Close Zdisplay and run it as "
+                      L"administrator once to apply this option."),
                     L"Zdisplay", MB_OK | MB_ICONWARNING);
             }
             return;
@@ -871,18 +911,18 @@ void App::OnCommand(int id, HWND control, int code) {
         case IDC_RELOCK_GAMMA: {
             // Every system-level change the program makes is reversible.
             if (::MessageBoxW(settings_,
-                    L"Remover GdiIcmGammaRange do registro e voltar ao limite "
-                    L"padrão do Windows?\n\nPrecisa de administrador e só vale "
-                    L"após reiniciar a sessão.",
+                    T(L"Remove GdiIcmGammaRange from the registry and go back to the "
+                      L"standard Windows limit?\n\nIt needs administrator and only "
+                      L"applies after signing out."),
                     L"Zdisplay", MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 
             if (GammaBackend::TryUnlockRange(false)) {
-                SetTextOf(unlockButton_, L"Liberar faixa completa de gamma (admin)");
+                SetTextOf(unlockButton_, T(L"Unlock the full gamma range (admin)"));
                 ::SetWindowLongPtrW(unlockButton_, GWLP_ID, IDC_UNLOCK_GAMMA);
             } else {
                 ::MessageBoxW(settings_,
-                    L"Não consegui alterar o registro. Execute o Zdisplay como "
-                    L"administrador uma única vez.", L"Zdisplay", MB_OK | MB_ICONWARNING);
+                    T(L"Could not change the registry. Run Zdisplay as administrator "
+                      L"once."), L"Zdisplay", MB_OK | MB_ICONWARNING);
             }
             return;
         }
@@ -896,23 +936,24 @@ void App::OnCommand(int id, HWND control, int code) {
             // MB_DEFBUTTON2 makes "No" the Enter default so a stray Enter cannot
             // erase the entire configuration.
             const int r = ::MessageBoxW(settings_,
-                L"Isto apaga tudo o que você configurou: perfis, regras por "
-                L"aplicativo, regras por horário, atalhos, localização e as "
-                L"opções desta aba. O Zdisplay volta como veio instalado.\n\n"
-                L"A tela é devolvida ao estado original antes de qualquer coisa.\n\n"
-                L"Uma cópia do arquivo atual fica guardada na pasta de "
-                L"configuração como zdisplay.ini.antes-do-reset.\n\n"
-                L"A faixa completa de gamma liberada no Windows não é mexida — "
-                L"é uma opção do sistema e tem botão próprio, que pede "
-                L"administrador.\n\n"
-                L"Continuar?",
-                L"Zdisplay — padrão de fábrica",
+                T(L"This erases everything you have configured: profiles, application "
+                  L"rules, schedule rules, hotkeys, location and the options on this "
+                  L"tab. Zdisplay goes back to the way it was installed.\n\n"
+                  L"The display is returned to its original state before anything "
+                  L"else.\n\n"
+                  L"A copy of the current file is kept in the configuration folder as "
+                  L"zdisplay.ini.before-reset.\n\n"
+                  L"The full gamma range unlocked in Windows is left alone — it is a "
+                  L"system option with a button of its own, which asks for "
+                  L"administrator.\n\n"
+                  L"Continue?"),
+                T(L"Zdisplay — factory reset"),
                 MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
             if (r != IDYES) return;
 
             FactoryReset();
             ::MessageBoxW(settings_,
-                L"Pronto. O Zdisplay está como veio instalado.",
+                T(L"Done. Zdisplay is as it was installed."),
                 L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             return;
         }
@@ -929,22 +970,23 @@ void App::OnCommand(int id, HWND control, int code) {
             // program needs it; RGB gain is detected by reading the register.
             const int r = ::MessageBoxW(
                 settings_,
-                L"Vou perguntar a cada monitor quais recursos DDC/CI ele declara.\n\n"
-                L"Aviso: em alguns monitores com a resposta malformada, essa leitura\n"
-                L"esbarra num defeito do próprio Windows que pode travar o sistema.\n"
-                L"O risco e do Windows, não do Zdisplay, e atinge poucos modelos — mas\n"
-                L"salve o que estiver aberto antes de continuar.\n\n"
-                L"Isto serve só para diagnóstico. O Zdisplay funciona sem essa leitura.\n\n"
-                L"Continuar?",
-                L"Zdisplay — ler capacidades do monitor",
+                T(L"Each monitor is about to be asked which DDC/CI features it "
+                  L"declares.\n\n"
+                  L"Warning: on some monitors whose answer is malformed, this read hits\n"
+                  L"a defect in Windows itself that can freeze the system. The risk is\n"
+                  L"Windows', not Zdisplay's, and it reaches few models — but save what\n"
+                  L"you have open before continuing.\n\n"
+                  L"This is only for diagnosis. Zdisplay works without this read.\n\n"
+                  L"Continue?"),
+                T(L"Zdisplay — read the monitor capabilities"),
                 MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
             if (r != IDYES) return;
 
             engine_->Ddc()->RequestCapabilities();
             ::MessageBoxW(settings_,
-                          L"Leitura pedida. Ela roda em segundo plano e pode levar\n"
-                          L"alguns segundos por monitor.\n\n"
-                          L"Use 'Atualizar' daqui a pouco para ver o resultado.",
+                          T(L"Read requested. It runs in the background and may take a\n"
+                            L"few seconds per monitor.\n\n"
+                            L"Use 'Refresh' in a moment to see the result."),
                           L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             return;
         }
@@ -954,35 +996,35 @@ void App::OnCommand(int id, HWND control, int code) {
             // commands the program already issues, so it does not hit the kernel
             // defect. It does write to panel EEPROM, so it is never automatic.
             if (::MessageBoxW(settings_,
-                    L"Vou mudar o brilho de cada monitor um passo, ler de volta para\n"
-                    L"conferir e devolver o valor que estava.\n\n"
-                    L"A tela pode piscar de leve durante o teste. É a única forma de\n"
-                    L"distinguir um monitor que obedece de um que aceita o comando e\n"
-                    L"não muda nada.\n\n"
-                    L"Testar agora?",
-                    L"Zdisplay — testar o monitor",
+                    T(L"Each monitor's brightness is about to be moved one step, read\n"
+                      L"back to check, and restored to the value that was there.\n\n"
+                      L"The screen may flicker slightly during the test. It is the only\n"
+                      L"way to tell a monitor that obeys from one that accepts the\n"
+                      L"command and changes nothing.\n\n"
+                      L"Test now?"),
+                    T(L"Zdisplay — test the monitor"),
                     MB_YESNO | MB_ICONQUESTION) != IDYES) return;
 
             engine_->Ddc()->RequestRoundTrip();
             ::MessageBoxW(settings_,
-                          L"Teste pedido. Ele roda em segundo plano e leva alguns\n"
-                          L"segundos por monitor.\n\n"
-                          L"Use 'Atualizar' daqui a pouco para ver o resultado.",
+                          T(L"Test requested. It runs in the background and takes a few\n"
+                            L"seconds per monitor.\n\n"
+                            L"Use 'Refresh' in a moment to see the result."),
                           L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             return;
         }
 
         case IDC_DIAG_DDC_RESET: {
             if (::MessageBoxW(settings_,
-                    L"Isto permite que monitores bloqueados depois de uma queda sejam "
-                    L"testados novamente. A liberação não envia comandos agora.\n\n"
-                    L"Liberar a quarentena DDC/CI?",
+                    T(L"This allows monitors blocked after a crash to be tried again. "
+                      L"Clearing it sends no commands now.\n\n"
+                      L"Clear the DDC/CI quarantine?"),
                     L"Zdisplay", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) return;
             const int count = engine_->Ddc()->ClearSafetyBlocks();
             LoadDiagnostics();
             ::MessageBoxW(settings_,
-                          count ? L"Quarentena liberada. Nenhum comando perigoso foi enviado."
-                                : L"Não havia monitor em quarentena.",
+                          count ? T(L"Quarantine cleared. No dangerous command was sent.")
+                                : T(L"No monitor was in quarantine."),
                           L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             return;
         }
@@ -1006,7 +1048,8 @@ void App::OnCommand(int id, HWND control, int code) {
         case IDC_DIAG_OPENLOG: {
             const std::wstring path = LogPath();
             if (::GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                ::MessageBoxW(settings_, L"Ainda não há log.", L"Zdisplay", MB_OK | MB_ICONINFORMATION);
+                ::MessageBoxW(settings_, T(L"There is no log yet."), L"Zdisplay",
+                              MB_OK | MB_ICONINFORMATION);
                 return;
             }
             ::ShellExecuteW(settings_, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1048,8 +1091,8 @@ void App::CommitProfileEditor() {
     const std::wstring newName = SanitizeProfileName(typed);
     if (newName != typed) {
         ::MessageBoxW(settings_,
-                      L"O nome de um perfil não pode conter “|”, “[” ou “]” — "
-                      L"esses símbolos separam as seções do arquivo de configuração.",
+                      T(L"A profile name cannot contain “|”, “[” or “]” — those "
+                        L"symbols separate the sections of the configuration file."),
                       L"Zdisplay", MB_OK | MB_ICONINFORMATION);
         SetTextOf(profileNameEdit_, newName.empty() ? p->name : newName);
         if (newName.empty()) return;
@@ -1058,7 +1101,7 @@ void App::CommitProfileEditor() {
 
     for (const auto& other : config_.profiles) {
         if (&other != p && IEquals(other.name, newName)) {
-            ::MessageBoxW(settings_, L"Já existe um perfil com esse nome.",
+            ::MessageBoxW(settings_, T(L"A profile with that name already exists."),
                           L"Zdisplay", MB_OK | MB_ICONINFORMATION);
             SetTextOf(profileNameEdit_, p->name);
             return;

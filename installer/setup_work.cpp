@@ -132,7 +132,7 @@ bool SameHash(const uint8_t* a, const uint8_t* b) {
 
 bool ValidatePeImage(const std::vector<BYTE>& image, std::wstring* why) {
     if (image.size() < sizeof(IMAGE_DOS_HEADER)) {
-        if (why) *why = L"O programa embutido está truncado.";
+        if (why) *why = Text(L"The embedded program is truncated.");
         return false;
     }
 
@@ -140,7 +140,7 @@ bool ValidatePeImage(const std::vector<BYTE>& image, std::wstring* why) {
     ::memcpy(&dos, image.data(), sizeof(dos));
     if (dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew <= 0 ||
         (size_t)dos.e_lfanew > image.size() - sizeof(IMAGE_NT_HEADERS64)) {
-        if (why) *why = L"O programa embutido não é um executável PE válido.";
+        if (why) *why = Text(L"The embedded program is not a valid PE executable.");
         return false;
     }
 
@@ -150,7 +150,7 @@ bool ValidatePeImage(const std::vector<BYTE>& image, std::wstring* why) {
         nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
         nt.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
         nt.OptionalHeader.Subsystem != IMAGE_SUBSYSTEM_WINDOWS_GUI) {
-        if (why) *why = L"O programa embutido não corresponde ao Zdisplay para Windows x64.";
+        if (why) *why = Text(L"The embedded program does not match Zdisplay for Windows x64.");
         return false;
     }
     return true;
@@ -177,7 +177,7 @@ bool DirExists(const std::wstring& path) {
 bool NormalizeInstallDirImpl(const std::wstring& input, std::wstring* normalized,
                              std::wstring* why) {
     if (input.empty()) {
-        if (why) *why = L"Escolha uma pasta de instalacao.";
+        if (why) *why = Text(L"Choose an installation folder.");
         return false;
     }
     // Only a local absolute path (X:\...) is accepted. UNC paths, device
@@ -186,19 +186,19 @@ bool NormalizeInstallDirImpl(const std::wstring& input, std::wstring* normalized
     if (input.size() < 4 || input[1] != L':' ||
         (input[2] != L'\\' && input[2] != L'/') ||
         input.find(L':', 2) != std::wstring::npos) {
-        if (why) *why = L"Use uma pasta local completa, como C:\\Programas\\Zdisplay.";
+        if (why) *why = Text(L"Use a full local path, such as C:\\Programs\\Zdisplay.");
         return false;
     }
 
     const DWORD need = ::GetFullPathNameW(input.c_str(), 0, nullptr, nullptr);
     if (need == 0 || need > 32767) {
-        if (why) *why = L"O caminho de instalacao nao e valido.";
+        if (why) *why = Text(L"The installation path is not valid.");
         return false;
     }
     std::vector<wchar_t> buf((size_t)need + 1);
     const DWORD got = ::GetFullPathNameW(input.c_str(), (DWORD)buf.size(), buf.data(), nullptr);
     if (got == 0 || got >= buf.size()) {
-        if (why) *why = L"Nao consegui normalizar a pasta de instalacao.";
+        if (why) *why = Text(L"Could not normalise the installation folder.");
         return false;
     }
 
@@ -206,18 +206,18 @@ bool NormalizeInstallDirImpl(const std::wstring& input, std::wstring* normalized
     while (full.size() > 3 && (full.back() == L'\\' || full.back() == L'/'))
         full.pop_back();
     if (::lstrcmpiW(LeafName(full).c_str(), L"Zdisplay") != 0) {
-        if (why) *why = L"A pasta final precisa se chamar Zdisplay.";
+        if (why) *why = Text(L"The final folder has to be named Zdisplay.");
         return false;
     }
 
     const DWORD attr = ::GetFileAttributesW(full.c_str());
     if (attr != INVALID_FILE_ATTRIBUTES) {
         if (!(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-            if (why) *why = L"Ja existe um arquivo com o nome da pasta de instalacao.";
+            if (why) *why = Text(L"A file already exists with the name of the installation folder.");
             return false;
         }
         if (attr & FILE_ATTRIBUTE_REPARSE_POINT) {
-            if (why) *why = L"A pasta de instalacao nao pode ser um link ou junction.";
+            if (why) *why = Text(L"The installation folder cannot be a link or a junction.");
             return false;
         }
     }
@@ -248,7 +248,7 @@ bool WriteInstallMarker(const std::wstring& dir, std::wstring* why) {
     HANDLE h = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
                              CREATE_ALWAYS, FILE_ATTRIBUTE_HIDDEN, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
-        if (why) *why = L"Nao consegui marcar a pasta de instalacao: " + FormatError(::GetLastError());
+        if (why) *why = Text(L"Could not mark the installation folder: ") + FormatError(::GetLastError());
         return false;
     }
     DWORD written = 0;
@@ -259,7 +259,7 @@ bool WriteInstallMarker(const std::wstring& dir, std::wstring* why) {
     ::CloseHandle(h);
     if (!ok) {
         ::DeleteFileW(path.c_str());
-        if (why) *why = L"Nao consegui concluir a pasta de instalacao: " + FormatError(err);
+        if (why) *why = Text(L"Could not finish the installation folder: ") + FormatError(err);
     }
     return ok;
 }
@@ -271,12 +271,12 @@ bool DeleteKnownFile(const std::wstring& path, std::wstring* why) {
         return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND;
     }
     if (attr & FILE_ATTRIBUTE_DIRECTORY) {
-        if (why) *why = L"Encontrei uma pasta onde deveria existir um arquivo: " + path;
+        if (why) *why = Text(L"Found a folder where a file should be: ") + path;
         return false;
     }
     ::SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_NORMAL);
     if (::DeleteFileW(path.c_str())) return true;
-    if (why) *why = L"Nao consegui remover " + path + L": " + FormatError(::GetLastError());
+    if (why) *why = Text(L"Could not remove ") + path + L": " + FormatError(::GetLastError());
     return false;
 }
 
@@ -307,8 +307,8 @@ bool CloseRunningApp(const std::wstring& exePath, std::wstring* why) {
         if (h != INVALID_HANDLE_VALUE) { ::CloseHandle(h); return true; }
         ::Sleep(200);
     }
-    if (why) *why = L"O Zdisplay continua em execução e o arquivo não pôde ser "
-                    L"substituído. Feche-o pela bandeja e tente de novo.";
+    if (why) *why = Text(L"Zdisplay is still running and the file could not be replaced. "
+                         L"Close it from the tray and try again.");
     return false;
 }
 
@@ -346,19 +346,19 @@ bool UnpackPayload(std::vector<BYTE>* out, std::wstring* why) {
     DWORD bodySize = 0;
     const zdpack::Header* h = PayloadHeader(&body, &bodySize);
     if (!h) {
-        if (why) *why = L"Este instalador foi montado sem o programa dentro dele.";
+        if (why) *why = Text(L"This installer was built without the program inside it.");
         return false;
     }
 
     out->resize(h->rawSize);
     if (out->size() != h->rawSize) {
-        if (why) *why = L"Sem memória para descompactar o programa.";
+        if (why) *why = Text(L"Not enough memory to decompress the program.");
         return false;
     }
 
     if (h->method == zdpack::kStore) {
         if (bodySize != h->rawSize) {
-            if (why) *why = L"O conteúdo embutido está inconsistente.";
+            if (why) *why = Text(L"The embedded content is inconsistent.");
             return false;
         }
         ::memcpy(out->data(), body, bodySize);
@@ -367,12 +367,12 @@ bool UnpackPayload(std::vector<BYTE>* out, std::wstring* why) {
         PfnGetWorkSpace getWs = nt ? (PfnGetWorkSpace)(void*)::GetProcAddress(nt, "RtlGetCompressionWorkSpaceSize") : nullptr;
         PfnDecompressEx dec   = nt ? (PfnDecompressEx)(void*)::GetProcAddress(nt, "RtlDecompressBufferEx") : nullptr;
         if (!getWs || !dec) {
-            if (why) *why = L"Este Windows não oferece a descompactação usada pelo instalador.";
+            if (why) *why = Text(L"This Windows does not offer the decompression the installer uses.");
             return false;
         }
         ULONG wsBuf = 0, wsFrag = 0;
         if (getWs(kFormatXpressHuff, &wsBuf, &wsFrag) < 0) {
-            if (why) *why = L"Falha ao preparar a descompactação.";
+            if (why) *why = Text(L"Failed to prepare the decompression.");
             return false;
         }
         std::vector<BYTE> ws(wsBuf > wsFrag ? wsBuf : wsFrag);
@@ -380,24 +380,24 @@ bool UnpackPayload(std::vector<BYTE>* out, std::wstring* why) {
         const NTSTATUS st = dec(kFormatXpressHuff, out->data(), (ULONG)out->size(),
                                 const_cast<BYTE*>(body), bodySize, &finalSize, ws.data());
         if (st < 0 || finalSize != h->rawSize) {
-            if (why) *why = L"O programa embutido não pôde ser descompactado.";
+            if (why) *why = Text(L"The embedded program could not be decompressed.");
             return false;
         }
     } else {
-        if (why) *why = L"Formato desconhecido no conteúdo embutido.";
+        if (why) *why = Text(L"Unknown format in the embedded content.");
         return false;
     }
 
     // A corrupt payload must fail here, before anything reaches the disk: a
     // truncated exe would only surface on the user's machine.
     if (zdpack::Crc32(out->data(), out->size()) != h->rawCrc32) {
-        if (why) *why = L"O programa embutido não passou na conferência de integridade.";
+        if (why) *why = Text(L"The embedded program failed the integrity check.");
         return false;
     }
     uint8_t digest[zdpack::kSha256Size] = {};
     if (!Sha256(out->data(), out->size(), digest) || !SameHash(digest, h->rawSha256)) {
         ::SecureZeroMemory(digest, sizeof(digest));
-        if (why) *why = L"O SHA-256 do programa embutido nao confere.";
+        if (why) *why = Text(L"The SHA-256 of the embedded program does not match.");
         return false;
     }
     ::SecureZeroMemory(digest, sizeof(digest));
@@ -415,7 +415,7 @@ bool WriteExe(const std::wstring& dest, const std::vector<BYTE>& data,
     HANDLE h = ::CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr,
                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
-        if (why) *why = L"Não consegui criar o arquivo: " + FormatError(::GetLastError());
+        if (why) *why = Text(L"Could not create the file: ") + FormatError(::GetLastError());
         return false;
     }
 
@@ -428,7 +428,7 @@ bool WriteExe(const std::wstring& dest, const std::vector<BYTE>& data,
             const DWORD e = ::GetLastError();
             ::CloseHandle(h);
             ::DeleteFileW(tmp.c_str());
-            if (why) *why = L"Falha ao gravar: " + FormatError(e);
+            if (why) *why = Text(L"Failed to write: ") + FormatError(e);
             return false;
         }
         done += n;
@@ -441,7 +441,7 @@ bool WriteExe(const std::wstring& dest, const std::vector<BYTE>& data,
     if (!::MoveFileExW(tmp.c_str(), dest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         const DWORD e = ::GetLastError();
         ::DeleteFileW(tmp.c_str());
-        if (why) *why = L"Não consegui concluir a gravação: " + FormatError(e);
+        if (why) *why = Text(L"Could not finish writing: ") + FormatError(e);
         return false;
     }
     return true;
@@ -502,7 +502,7 @@ bool CreateShortcut(const std::wstring& linkPath, const std::wstring& target,
 
     link->SetPath(target.c_str());
     link->SetWorkingDirectory(workDir.c_str());
-    link->SetDescription(L"Brilho, contraste, saturação e temperatura de cor");
+    link->SetDescription(Text(L"Brightness, contrast, saturation and color temperature"));
     link->SetIconLocation(target.c_str(), 0);
     StampShortcutIdentity(link);
 
@@ -569,7 +569,7 @@ bool WriteFullGammaRange(std::wstring* error) {
                                         &key, nullptr);
     if (open != ERROR_SUCCESS) {
         if (error)
-            *error = L"Não consegui abrir a chave do sistema (erro " +
+            *error = Text(L"Could not open the system key (error ") +
                      std::to_wstring(open) + L").";
         return false;
     }
@@ -579,7 +579,7 @@ bool WriteFullGammaRange(std::wstring* error) {
     ::RegCloseKey(key);
     if (r != ERROR_SUCCESS) {
         if (error)
-            *error = L"Não consegui gravar o valor (erro " + std::to_wstring(r) + L").";
+            *error = Text(L"Could not write the value (error ") + std::to_wstring(r) + L").";
         return false;
     }
     return true;
@@ -606,8 +606,8 @@ bool RequestFullGammaRange(HWND owner, std::wstring* error) {
         const DWORD err = ::GetLastError();
         if (error)
             *error = err == ERROR_CANCELLED
-                         ? L"Você recusou o pedido de administrador."
-                         : L"Não consegui pedir elevação (erro " +
+                         ? Text(L"You declined the administrator prompt.")
+                         : Text(L"Could not ask for elevation (error ") +
                                std::to_wstring(err) + L").";
         return false;
     }
@@ -618,12 +618,12 @@ bool RequestFullGammaRange(HWND owner, std::wstring* error) {
     ::CloseHandle(ei.hProcess);
 
     if (code != 0) {
-        if (error) *error = L"O processo elevado não conseguiu gravar o valor.";
+        if (error) *error = Text(L"The elevated process could not write the value.");
         return false;
     }
     // Read the value back: exit code 0 alone does not prove the key changed.
     if (!FullGammaRangeEnabled()) {
-        if (error) *error = L"O valor não ficou gravado.";
+        if (error) *error = Text(L"The value was not stored.");
         return false;
     }
     return true;
@@ -783,7 +783,7 @@ std::wstring FormatError(DWORD err) {
     if (text) ::LocalFree(text);
 
     wchar_t num[32];
-    ::wsprintfW(num, L"erro %lu", err);
+    ::wsprintfW(num, Text(L"error %lu"), err);
     return msg.empty() ? std::wstring(num) : (std::wstring(num) + L" — " + msg);
 }
 
@@ -801,7 +801,7 @@ bool PickFolder(HWND owner, const std::wstring& current, std::wstring* out) {
         DWORD flags = 0;
         dlg->GetOptions(&flags);
         dlg->SetOptions(flags | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
-        dlg->SetTitle(L"Onde instalar o Zdisplay");
+        dlg->SetTitle(Text(L"Where to install Zdisplay"));
 
         // The previously chosen folder may not exist yet, since the installer
         // creates it; in that case walk up to the first existing parent.
@@ -842,7 +842,7 @@ bool PickFolder(HWND owner, const std::wstring& current, std::wstring* out) {
     wchar_t display[MAX_PATH] = {};
     bi.hwndOwner = owner;
     bi.pszDisplayName = display;
-    bi.lpszTitle = L"Onde instalar o Zdisplay";
+    bi.lpszTitle = Text(L"Where to install Zdisplay");
     bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
     LPITEMIDLIST idl = ::SHBrowseForFolderW(&bi);
     if (!idl) return false;
@@ -871,10 +871,10 @@ Result Install(const Options& opt, ProgressFn progress, void* ctx) {
     Report(progress, ctx, 6, L"Fechando o Zdisplay...");
     if (!CloseRunningApp(exe, &res.message)) return res;
 
-    Report(progress, ctx, 12, L"Criando a pasta...");
+    Report(progress, ctx, 12, Text(L"Creating the folder..."));
     DWORD err = 0;
     if (!EnsureDir(dir, &err)) {
-        res.message = L"Não consegui criar a pasta de instalação: " + FormatError(err);
+        res.message = Text(L"Could not create the installation folder: ") + FormatError(err);
         return res;
     }
 
@@ -885,27 +885,27 @@ Result Install(const Options& opt, ProgressFn progress, void* ctx) {
     if (!::CopyFileW(SelfPath().c_str(), unin.c_str(), FALSE)) {
         // Without an uninstaller the installation would work but offer no clean
         // way out, so this counts as an error rather than a warning.
-        res.message = L"Não consegui criar o desinstalador: " + FormatError(::GetLastError());
+        res.message = Text(L"Could not create the uninstaller: ") + FormatError(::GetLastError());
         return res;
     }
 
     if (!WriteInstallMarker(dir, &res.message)) return res;
 
-    Report(progress, ctx, 85, L"Criando os atalhos...");
+    Report(progress, ctx, 85, Text(L"Creating the shortcuts..."));
     if (!CreateShortcut(StartMenuLink(), exe, dir)) {
-        res.message = L"Nao consegui criar o atalho no menu Iniciar.";
+        res.message = Text(L"Could not create the Start menu shortcut.");
         return res;
     }
     if (opt.desktopIcon) {
         if (!CreateShortcut(DesktopLink(), exe, dir)) {
-            res.message = L"Nao consegui criar o atalho na area de trabalho.";
+            res.message = Text(L"Could not create the desktop shortcut.");
             return res;
         }
     } else {
         ::DeleteFileW(DesktopLink().c_str());
     }
 
-    Report(progress, ctx, 92, L"Registrando...");
+    Report(progress, ctx, 92, Text(L"Registering..."));
     const bool registered =
         RegSetStr(HKEY_CURRENT_USER, kAppKey, L"InstallDir", dir) &&
         RegSetStr(HKEY_CURRENT_USER, kAppKey, L"Version", kVersionStr) &&
@@ -922,20 +922,20 @@ Result Install(const Options& opt, ProgressFn progress, void* ctx) {
         RegSetDword(HKEY_CURRENT_USER, kUninstallKey, L"EstimatedSize",
                     (DWORD)((image.size() + 1023) / 1024));
     if (!registered) {
-        res.message = L"O programa foi copiado, mas o Windows recusou o registro em Aplicativos instalados.";
+        res.message = Text(L"The program was copied, but Windows refused the entry in Installed apps.");
         return res;
     }
 
     if (opt.autostart) {
         if (!RegSetStr(HKEY_CURRENT_USER, kRunKey, kRunValue, Quoted(exe) + L" --tray")) {
-            res.message = L"O Windows recusou a configuracao de inicio automatico.";
+            res.message = Text(L"Windows refused the automatic startup setting.");
             return res;
         }
     } else {
         RegDeleteValueIfAny(HKEY_CURRENT_USER, kRunKey, kRunValue);
     }
 
-    Report(progress, ctx, 100, L"Pronto.");
+    Report(progress, ctx, 100, Text(L"Done."));
     res.ok = true;
     return res;
 }
@@ -951,10 +951,10 @@ Result Uninstall(const Options& opt, ProgressFn progress, void* ctx) {
     Report(progress, ctx, 10, L"Fechando o Zdisplay...");
     if (!CloseRunningApp(exe, &res.message)) return res;
 
-    Report(progress, ctx, 30, L"Removendo o início automático...");
+    Report(progress, ctx, 30, Text(L"Removing the automatic startup..."));
     RegDeleteValueIfAny(HKEY_CURRENT_USER, kRunKey, kRunValue);
 
-    Report(progress, ctx, 45, L"Removendo os atalhos...");
+    Report(progress, ctx, 45, Text(L"Removing the shortcuts..."));
     ::DeleteFileW(StartMenuLink().c_str());
     ::DeleteFileW(DesktopLink().c_str());
 
@@ -963,7 +963,7 @@ Result Uninstall(const Options& opt, ProgressFn progress, void* ctx) {
     ::RegDeleteKeyW(HKEY_CURRENT_USER, kAppKey);
 
     if (opt.removeSettings) {
-        Report(progress, ctx, 75, L"Apagando as configurações...");
+        Report(progress, ctx, 75, Text(L"Deleting the settings..."));
         const std::wstring roaming = KnownFolder(kFOLDERID_RoamingAppData);
         if (!roaming.empty()) {
             const std::wstring cfg = Join(roaming, L"Zdisplay");
@@ -974,7 +974,7 @@ Result Uninstall(const Options& opt, ProgressFn progress, void* ctx) {
         }
     }
 
-    Report(progress, ctx, 90, L"Removendo os arquivos...");
+    Report(progress, ctx, 90, Text(L"Removing the files..."));
     if (!dir.empty() && DirExists(dir)) {
         // The install root is never deleted recursively: only the files
         // recorded at install time are removed, so user files placed in the
@@ -993,7 +993,7 @@ Result Uninstall(const Options& opt, ProgressFn progress, void* ctx) {
         }
     }
 
-    Report(progress, ctx, 100, L"Pronto.");
+    Report(progress, ctx, 100, Text(L"Done."));
     res.ok = true;
     return res;
 }

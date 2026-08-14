@@ -71,7 +71,7 @@ protected:
 /// Does no saturation: a ramp cannot mix channels.
 class GammaBackend : public Backend {
 public:
-    const wchar_t* Name() const override { return L"Rampa de gamma (GDI)"; }
+    const wchar_t* Name() const override { return L"Gamma ramp (GDI)"; }
     unsigned Capabilities() const override {
         return CAP_BRIGHTNESS | CAP_CONTRAST | CAP_GAMMA | CAP_TEMPERATURE | CAP_PER_MONITOR;
     }
@@ -167,7 +167,7 @@ private:
 /// own brightness.
 class HdrBackend : public Backend {
 public:
-    const wchar_t* Name() const override { return L"HDR (nível de branco SDR)"; }
+    const wchar_t* Name() const override { return L"HDR (SDR white level)"; }
     unsigned Capabilities() const override { return CAP_BRIGHTNESS | CAP_PER_MONITOR; }
     bool Init() override;
     void Apply(const MonitorTarget& m, const Adjustments& a) override;
@@ -209,7 +209,7 @@ private:
 /// reach exclusive fullscreen games (borderless does work).
 class MagnifyBackend : public Backend {
 public:
-    const wchar_t* Name() const override { return L"Matriz de cor (Magnification API)"; }
+    const wchar_t* Name() const override { return L"Color matrix (Magnification API)"; }
     unsigned Capabilities() const override {
         return CAP_SATURATION | CAP_HUE | CAP_INVERT;
     }
@@ -364,7 +364,7 @@ private:
 class DdcciBackend : public Backend {
 public:
     ~DdcciBackend() override { Shutdown(); }
-    const wchar_t* Name() const override { return L"Hardware do monitor (DDC/CI)"; }
+    const wchar_t* Name() const override { return L"Monitor hardware (DDC/CI)"; }
     unsigned Capabilities() const override {
         unsigned c = CAP_HW_BRIGHT | CAP_HW_CONTRAST | CAP_PER_MONITOR;
         // Monitor RGB gain counts as a color temperature path only when some
@@ -519,6 +519,17 @@ private:
         /// but some models answer on another one and, on 0x10, accept the
         /// command without changing anything, which is worse than refusing it.
         BYTE brightnessCode = 0x10;
+        /// Further panels behind the SAME HMONITOR, as keys into `monitors_`.
+        ///
+        /// Windows presents mirrored displays as one desktop area, so a clone
+        /// pair arrives as a single monitor key with two physical panels behind
+        /// it. Each panel keeps its own entry, because the ranges, the original
+        /// values and the EEPROM write budget belong to the panel and not to the
+        /// desktop area. Filled on the primary entry only.
+        std::vector<std::wstring> clones;
+        /// This entry is one of those extra panels. The rest of the program
+        /// addresses monitors by their own key and never sees these.
+        bool isClone = false;
         DdcMonitorMode mode = DdcMonitorMode::Auto;
         double lastCommandMs = 0;
         /// Values the monitor had before it was touched, in percent.
@@ -575,6 +586,13 @@ private:
     std::vector<std::pair<HANDLE, size_t>> owned_;  // blocks returned by the API
     std::map<std::wstring, Want> pending_;
     std::map<std::wstring, std::wstring> capsUnsafe_;
+    /// Panels that were enumerated but answered no register at all, by monitor
+    /// key -> display name.
+    ///
+    /// Kept so the diagnostics can state that the panel was found and stayed
+    /// mute. Dropping it from the list instead would read as "no such monitor",
+    /// which is the one thing the user cannot tell apart from a bug.
+    std::map<std::wstring, std::wstring> unresponsive_;
     std::map<std::wstring, DdcMonitorMode> monitorModes_;
     Lock   lock_;
     HANDLE thread_ = nullptr;
@@ -602,7 +620,7 @@ private:
 class BacklightBackend : public Backend {
 public:
     ~BacklightBackend() override { Shutdown(); }
-    const wchar_t* Name() const override { return L"Backlight do notebook (WMI)"; }
+    const wchar_t* Name() const override { return L"Laptop backlight (WMI)"; }
     unsigned Capabilities() const override { return CAP_HW_BRIGHT; }
     bool Init() override;
     void Shutdown() override;
@@ -659,7 +677,7 @@ private:
 class OverlayBackend : public Backend {
 public:
     ~OverlayBackend() override { Shutdown(); }
-    const wchar_t* Name() const override { return L"Escurecimento por sobreposição"; }
+    const wchar_t* Name() const override { return L"Dimming overlay"; }
     unsigned Capabilities() const override { return CAP_DIM | CAP_PER_MONITOR; }
     bool Init() override;
     void Shutdown() override;

@@ -93,6 +93,14 @@ CommandRequest* Resolve(UINT_PTR cookie);
 
 /// Named pipe command channel. Lets an external caller drive Zdisplay from the
 /// command line while it runs in the background.
+/// Prefix that marks a command reply as a failure.
+///
+/// The reply is plain text, so this word is the whole protocol: the running
+/// instance writes it and the invoking process tests for it to choose an exit
+/// code. Named once so the two cannot drift apart — when they did, a failed
+/// command was reported as success.
+constexpr const wchar_t* kCommandErrorPrefix = L"error:";
+
 class PipeServer {
 public:
     PipeServer() = default;

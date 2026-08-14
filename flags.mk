@@ -33,7 +33,7 @@ ZDISPLAY_LIBS=-lgdi32 -luser32 -ladvapi32 -lshell32 -lcomctl32 -lcomdlg32 -lole3
 # stuck on whatever adjustment was active. In the tests aborting is the desired
 # outcome, since it turns every case into a bounds check.
 ZDISPLAY_TESTFLAGS=-O1 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong
-ZDISPLAY_TESTSRC=tests/test_zdisplay.cpp src/core.cpp src/common.cpp src/backends_display.cpp
+ZDISPLAY_TESTSRC=tests/test_zdisplay.cpp src/core.cpp src/common.cpp src/strings.cpp src/backends_display.cpp
 ZDISPLAY_TESTLIBS=-lshell32 -lole32 -ladvapi32 -luser32 -lgdi32 -luuid
 
 # Portable toolchain that build.bat downloads when no compiler is present.

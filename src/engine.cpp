@@ -21,9 +21,9 @@ void Engine::CaptureBaseline(bool screenIsTrustworthy) {
     // current screen holds that session's adjustments, not the original state;
     // recording it as the baseline would make the loss permanent, ICC included.
     if (!screenIsTrustworthy) {
-        KLOG_W(L"Não vou regravar o estado original: a execucao anterior travou e o "
-               L"baseline em disco não pode ser lido, então a tela de agora não é "
-               L"confiavel como referência. O reset usara o que já estava guardado.");
+        KLOG_W(L"The original state will not be rewritten: the previous run crashed and the "
+               L"baseline on disk cannot be read, so the display as it is now is not "
+               L"trustworthy as a reference. Reset will use what was already stored.");
         return;
     }
 
@@ -34,8 +34,8 @@ bool Engine::RecoverFromCrash() {
     Baseline b;
     if (!LoadBaseline(&b) || b.Empty()) return false;
 
-    KLOG_W(L"A execucao anterior não terminou direito. Devolvendo a tela ao "
-           L"estado original guardado antes de qualquer ajuste.");
+    KLOG_W(L"The previous run did not finish cleanly. Returning the display to the "
+           L"original state stored before any adjustment.");
 
     gamma_.AdoptBaseline(b);
     hdr_.AdoptBaseline(b);
@@ -61,7 +61,7 @@ bool Engine::RecoverFromCrash() {
 }
 
 void Engine::EmergencyRestore() {
-    KLOG_W(L"RESTAURAÇÃO DE EMERGÊNCIA acionada — devolvendo a tela e pausando.");
+    KLOG_W(L"EMERGENCY RESTORE triggered - giving the display back and pausing.");
     if (transitioning_ && host_) { ::KillTimer(host_, TIMER_TRANSITION); transitioning_ = false; }
     enabled_ = false;
     ResetAll();
@@ -118,7 +118,7 @@ void Engine::Initialize(HWND hostWindow) {
 
     for (const auto& e : entries) {
         if (!e.enabled) {
-            KLOG_I(L"Backend '%s' desligado nas configurações.", e.b->Name());
+            KLOG_I(L"Backend '%s' turned off in the settings.", e.b->Name());
             continue;
         }
         const bool ok = e.b->Init();
@@ -128,8 +128,8 @@ void Engine::Initialize(HWND hostWindow) {
     }
 
     if (GammaBackend::NightLightActive()) {
-        KLOG_W(L"A Luz noturna do Windows esta ligada e disputa a mesma rampa de gamma. "
-               L"Se as cores oscilarem, desligue-a nas Configurações do Windows.");
+        KLOG_W(L"Windows Night light is on and contends for the same gamma ramp. "
+               L"If the colors oscillate, turn it off in Windows Settings.");
     }
 
     // Order matters: restore the screen if the previous run crashed, then capture
@@ -152,9 +152,9 @@ void Engine::Initialize(HWND hostWindow) {
     Profile* start = cfg_->Default();
     activeName_ = start ? start->name : std::wstring();
     SnapTo(start);
-    KLOG_I(L"Motor iniciado com o perfil '%s'.%s",
-           start ? start->name.c_str() : L"(nenhum)",
-           recovered ? L" (tela recuperada após encerramento anormal)" : L"");
+    KLOG_I(L"Engine started with profile '%s'.%s",
+           start ? start->name.c_str() : L"(none)",
+           recovered ? L" (display recovered after an abnormal shutdown)" : L"");
 }
 
 void Engine::Shutdown() {
@@ -175,7 +175,7 @@ void Engine::Shutdown() {
     // marker when a monitor refused the final restore makes the next run retry
     // from the persisted baseline.
     if (!ddc_.RestoreIncomplete()) SessionEnd();
-    else KLOG_W(L"Sessão mantida como incompleta porque o restauro DDC/CI falhou.");
+    else KLOG_W(L"Session kept marked incomplete because the DDC/CI restore failed.");
 }
 
 void Engine::NotifyChanged() {
@@ -236,8 +236,8 @@ void Engine::Recompute(bool animate) {
     // address, so pointer comparison cannot tell one profile from another.
     if (IEquals(wanted->name, activeName_)) return;
 
-    KLOG_I(L"Perfil '%s' -> '%s'",
-           activeName_.empty() ? L"(nenhum)" : activeName_.c_str(), wanted->name.c_str());
+    KLOG_I(L"Profile '%s' -> '%s'",
+           activeName_.empty() ? L"(none)" : activeName_.c_str(), wanted->name.c_str());
     activeName_ = wanted->name;
     if (animate) BeginTransition(wanted); else SnapTo(wanted);
     NotifyChanged();
@@ -273,7 +273,7 @@ void Engine::OnProfilesChanged() {
 void Engine::OnForegroundProcess(const std::wstring& processName) {
     if (IEquals(processName, foreground_)) return;
     foreground_ = processName;
-    KLOG_D(L"Primeiro plano: %s", foreground_.empty() ? L"(nao identificado)"
+    KLOG_D(L"Foreground: %s", foreground_.empty() ? L"(not identified)"
                                                        : foreground_.c_str());
     Recompute();
 }
@@ -302,7 +302,7 @@ void Engine::SetEnabled(bool on) {
         KLOG_I(L"Zdisplay reativado.");
         BeginTransition(Active());
     } else {
-        KLOG_I(L"Zdisplay pausado — restaurando a tela.");
+        KLOG_I(L"Zdisplay paused - restoring the display.");
         if (transitioning_) { ::KillTimer(host_, TIMER_TRANSITION); transitioning_ = false; }
         ResetAll();
     }
@@ -357,7 +357,11 @@ void Engine::ApplyInteractive() {
         // The gamma ramp skips a rewrite when the target is unchanged and the
         // overlay only touches its window when the dim value changes, so neither
         // flickers under rapid repeats.
-        gamma_.ApplyInteractive(m, a);
+        // The quality profile runs the full adaptive search during the gesture,
+        // so the largest effect Windows accepts is reached while the slider
+        // moves instead of when it stops. Both paths settle on the same value.
+        if (cfg_ && cfg_->adaptiveWhileDragging) gamma_.Apply(m, a);
+        else                                     gamma_.ApplyInteractive(m, a);
         overlay_.Apply(m, a);
     }
 
@@ -445,7 +449,7 @@ void Engine::MirrorInternalBrightness() {
     }
 
     if (mirrored > 0)
-        KLOG_I(L"Brilho do painel interno mudou para %d%% pelas teclas; espelhado "
+        KLOG_I(L"Internal panel brightness changed to %d%% by the keys - mirrored "
                L"em %d monitor(es) externo(s).", level, mirrored);
 }
 
@@ -470,6 +474,11 @@ void Engine::BeginTransition(Profile* p) {
     // previewing_ is part of the guard so the foreground hook, the schedule timer
     // or a channel command cannot cancel a comparison that is still in progress.
     if (!p || !enabled_ || previewing_) return;
+
+    // The light profile switches with no frames at all. The destination is the
+    // same one the animation would have reached, so nothing is lost but the
+    // fade itself.
+    if (cfg_ && !cfg_->animateTransitions) { SnapTo(p); return; }
 
     transitionMs_ = Clamp(p->transitionMs, 0, 10000);
     if (transitionMs_ <= 20) { SnapTo(p); return; }
@@ -572,7 +581,7 @@ void Engine::OnTimer(UINT_PTR id) {
                     backlight_.ExportBaseline(&b);
                     SaveBaseline(b);
                 }
-                KLOG_I(L"Backend '%s' ficou disponível: %s",
+                KLOG_I(L"Backend '%s' became available: %s",
                        backlight_.Name(), backlight_.Details().c_str());
                 ApplyNow();
                 NotifyChanged();
@@ -613,7 +622,7 @@ void Engine::UpdateScheduleTimer() {
 void Engine::SetSessionActive(bool active) {
     if (sessionActive_ == active) return;
     sessionActive_ = active;
-    KLOG_I(active ? L"Sessão em primeiro plano." : L"Sessão em segundo plano.");
+    KLOG_I(active ? L"Session in the foreground." : L"Session in the background.");
     UpdateSuspension();
 }
 
@@ -630,7 +639,7 @@ void Engine::SettleDisplayState() {
     if (host_) ::KillTimer(host_, TIMER_DISPLAYSTATE);
     if (displayOn_ == displayPending_) return;
     displayOn_ = displayPending_;
-    KLOG_I(displayOn_ ? L"Tela acesa." : L"Tela apagada.");
+    KLOG_I(displayOn_ ? L"Display on." : L"Display off.");
     UpdateSuspension();
 }
 
@@ -645,11 +654,11 @@ void Engine::UpdateSuspension() {
         // with the display off every ramp write wakes the compositor for nothing.
         ::KillTimer(host_, TIMER_WATCHDOG);
         ::KillTimer(host_, TIMER_SCHEDULE);
-        KLOG_I(L"Reafirmação suspensa.");
+        KLOG_I(L"Reassertion suspended.");
         return;
     }
 
-    KLOG_I(L"Reafirmação retomada.");
+    KLOG_I(L"Reassertion resumed.");
     // OnResume is deliberately not called here: rediscovery talks DDC/CI, which
     // flaps the link into another display-off notification and loops. Recompute
     // and ApplyNow suffice, because the DDC/CI apply is uncached and the backend
@@ -712,66 +721,66 @@ std::vector<std::wstring> Engine::MonitorCoverage(const MonitorTarget& m) const 
     const bool hdrMixed  = m.isHdr && !AllMonitorsHdr();
 
     if (gammaLive) {
-        std::wstring s = L"brilho, contraste, gamma, temperatura, sombras: rampa de gamma";
+        std::wstring s = L"brightness, contrast, gamma, temperature, shadows: gamma ramp";
         if (gamma_.Limited())
-            s += Format(L" (o Windows limitou a %.0f%%)", gamma_.AcceptedFraction() * 100.0);
+            s += Format(L" (Windows limited it to %.0f%%)", gamma_.AcceptedFraction() * 100.0);
         out.push_back(s);
     } else if (m.isHdr && hdr_.Supports(m)) {
         // Per display, without I2C, and effective in exclusive fullscreen.
-        std::wstring s = L"brilho: nível de branco SDR do Windows";
+        std::wstring s = L"brightness: Windows SDR white level";
         const int nits = hdr_.CurrentNits(m.key);
         if (nits > 0) s += Format(L" (%d nits)", nits);
         out.push_back(s);
         out.push_back(AllMonitorsHdr()
-            ? std::wstring(L"contraste, temperatura: matriz de cor  ·  gamma e sombras: "
-                           L"não valem com HDR ligado")
-            : std::wstring(L"contraste, temperatura, gamma, sombras: não valem nesta tela — "
-                           L"o HDR desliga a rampa e a matriz é global (as telas sem HDR "
-                           L"receberiam o ajuste em dobro)"));
-        out.push_back(L"   (o nível de branco SDR governa a área de trabalho e o conteúdo "
-                      L"comum; jogo ou filme em HDR desenha na faixa HDR e mantém o brilho "
-                      L"próprio)");
+            ? std::wstring(L"contrast, temperature: color matrix  ·  gamma and shadows: "
+                           L"do not apply with HDR on")
+            : std::wstring(L"contrast, temperature, gamma, shadows: do not apply on this display - "
+                           L"HDR disables the ramp and the matrix is global (the displays without "
+                           L"HDR would receive the adjustment twice)"));
+        out.push_back(L"   (the SDR white level governs the desktop and ordinary content; "
+                      L"a game or film in HDR draws in the HDR range and keeps its own "
+                      L"brightness)");
     } else if (m.isHdr && AllMonitorsHdr()) {
-        out.push_back(L"brilho, contraste, temperatura: matriz de cor "
-                      L"(HDR desliga a rampa; gamma e sombras não valem aqui)");
+        out.push_back(L"brightness, contrast, temperature: color matrix "
+                      L"(HDR disables the ramp - gamma and shadows do not apply here)");
     } else if (hdrMixed) {
         const bool ddcBright = ddc_.SupportsBrightness(m.key);
         out.push_back(ddcBright
-            ? std::wstring(L"brilho: DDC/CI, como fração do brilho físico original "
-                           L"(HDR desliga a rampa nesta tela)")
-            : std::wstring(L"brilho, contraste, gamma, temperatura, sombras: NADA vale "
-                           L"aqui — o HDR desliga a rampa e este monitor não responde "
-                           L"a DDC/CI. Desligue o HDR nesta tela para os ajustes valerem."));
+            ? std::wstring(L"brightness: DDC/CI, as a fraction of the original physical brightness "
+                           L"(HDR disables the ramp on this display)")
+            : std::wstring(L"brightness, contrast, gamma, temperature, shadows: NOTHING applies "
+                           L"here - HDR disables the ramp and this monitor does not answer "
+                           L"DDC/CI. Turn HDR off on this display for the adjustments to apply."));
         if (!AllMonitorsHdr())
-            out.push_back(L"   (a matriz não pode assumir: ela é global e as telas sem "
-                          L"HDR receberiam o ajuste em dobro)");
+            out.push_back(L"   (the matrix cannot take over: it is global and the displays without "
+                          L"HDR would receive the adjustment twice)");
     } else {
-        out.push_back(L"brilho, contraste, gamma, temperatura, sombras: indisponíveis — " +
-                      (gamma_.Details().empty() ? std::wstring(L"sem rampa de gamma")
+        out.push_back(L"brightness, contrast, gamma, temperature, shadows: unavailable - " +
+                      (gamma_.Details().empty() ? std::wstring(L"no gamma ramp")
                                                 : gamma_.Details()));
     }
 
     // Saturation and hue.
     if (nvidia_.Available() || amd_.Available()) {
-        out.push_back(std::wstring(L"saturação, vibrance, matiz: ") +
+        out.push_back(std::wstring(L"saturation, vibrance, hue: ") +
                       (nvidia_.Available() ? L"NVIDIA (NVAPI)" : L"AMD (ADL)") +
-                      (magnify_.Available() ? L" + matriz de cor" : L""));
+                      (magnify_.Available() ? L" + color matrix" : L""));
     } else if (magnify_.Available()) {
-        out.push_back(L"saturação, matiz: matriz de cor (efeito global, igual em "
-                      L"todos os monitores; não alcança jogo em tela cheia exclusiva)");
+        out.push_back(L"saturation, hue: color matrix (global effect, the same on "
+                      L"every monitor - it does not reach exclusive fullscreen games)");
     } else {
-        out.push_back(L"saturação, matiz: indisponíveis nesta máquina");
+        out.push_back(L"saturation, hue: unavailable on this machine");
     }
 
     // Monitor hardware.
     std::wstring hw;
     if (m.isInternal && backlight_.Available())
-        hw = L"brilho físico: luz de fundo do notebook (WMI)";
+        hw = L"physical brightness: laptop backlight (WMI)";
     else if (ddc_.SupportsBrightness(m.key))
-        hw = L"brilho físico: DDC/CI";
+        hw = L"physical brightness: DDC/CI";
     else
-        hw = L"brilho físico: indisponível (este monitor não respondeu a DDC/CI)";
-    if (ddc_.SupportsContrast(m.key)) hw += L"  ·  contraste físico: DDC/CI";
+        hw = L"physical brightness: unavailable (this monitor did not answer DDC/CI)";
+    if (ddc_.SupportsContrast(m.key)) hw += L"  ·  physical contrast: DDC/CI";
     out.push_back(hw);
 
     return out;
@@ -887,13 +896,13 @@ bool Engine::VendorHueAvailable() const {
 }
 
 void Engine::OnDisplayChanged() {
-    KLOG_I(L"Mudança de monitores recebida; redescobrindo e agendando confirmacoes.");
+    KLOG_I(L"Monitor change received - rediscovering and scheduling confirmations.");
     RediscoverHardware();
     ScheduleRediscovery();
 }
 
 void Engine::OnResume() {
-    KLOG_I(L"Sistema retomado; redescobrindo hardware agora e em etapas.");
+    KLOG_I(L"System resumed - rediscovering hardware now and in stages.");
 
     // Waking triggers several reapplications of the same profile (power event,
     // WM_DISPLAYCHANGE, staged rediscovery). Holding commands briefly makes the
@@ -901,6 +910,11 @@ void Engine::OnResume() {
     ddc_.HoldCommands(kResumeHoldMs);
 
     RediscoverHardware();
+    ScheduleRediscovery();
+}
+
+void Engine::OnDeviceChanged() {
+    KLOG_I(L"A monitor device changed - scheduling a confirmation of the layout.");
     ScheduleRediscovery();
 }
 
@@ -920,7 +934,7 @@ void Engine::RediscoverHardware() {
     // monitors::All().
     overlay_.SyncMonitors(monitors::All());
     SnapTo(Active());
-    if (changed) KLOG_I(L"Arranjo de monitores atualizado; perfil reaplicado.");
+    if (changed) KLOG_I(L"Monitor layout updated - profile reapplied.");
     NotifyChanged();
 }
 
@@ -981,7 +995,7 @@ std::wstring Engine::DescribeBackends() const {
         out += b->Details();
         out += L"\r\n";
     }
-    if (all_.empty()) out = L"  Nenhum backend habilitado.\r\n";
+    if (all_.empty()) out = L"  No backend enabled.\r\n";
     return out;
 }
 

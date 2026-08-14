@@ -72,7 +72,7 @@ bool App::Init(HINSTANCE inst, const std::vector<std::wstring>& args) {
     wc.lpszClassName = kHostClass;
     wc.hIcon = icon_;
     if (!::RegisterClassExW(&wc)) {
-        KLOG_E(L"Não consegui registrar a janela hospedeira (erro %lu).", ::GetLastError());
+        KLOG_E(L"Could not register the host window class (error %lu).", ::GetLastError());
         return false;
     }
 
@@ -80,12 +80,17 @@ bool App::Init(HINSTANCE inst, const std::vector<std::wstring>& args) {
                               WS_OVERLAPPED, 0, 0, 0, 0,
                               nullptr, nullptr, inst_, nullptr);
     if (!host_) {
-        KLOG_E(L"Não consegui criar a janela hospedeira (erro %lu).", ::GetLastError());
+        KLOG_E(L"Could not create the host window (error %lu).", ::GetLastError());
         return false;
     }
     RegisterSessionNotifications();
 
     LoadConfig(&config_);
+
+    // Before any window exists: controls read their captions as they are
+    // created, so a language installed later would leave a window half
+    // translated.
+    SetLanguage(config_.language);
 
     // Keeps the run-at-startup registry entry in sync with the config file.
     if (config_.startWithWindows != startup::IsEnabled())
@@ -135,7 +140,7 @@ bool App::Init(HINSTANCE inst, const std::vector<std::wstring>& args) {
     // confirmation, otherwise the session begins on an unreadable screen.
     GuardDarkScreen();
 
-    KLOG_I(L"Zdisplay pronto. %d backend(s) ativo(s), %d monitor(es).",
+    KLOG_I(L"Zdisplay ready. %d backend(s) active, %d monitor(s).",
            engine_->AvailableBackendCount(), (int)monitors::All().size());
     return true;
 }
@@ -159,7 +164,7 @@ int App::Run() {
 void App::RequestExit() {
     if (exiting_) return;
     exiting_ = true;
-    KLOG_I(L"Encerrando o Zdisplay.");
+    KLOG_I(L"Shutting Zdisplay down.");
 
     SaveConfig(config_);
 
@@ -226,12 +231,14 @@ void App::UpdateHotkeyWarning() {
 
     if (failedHotkeys_.empty()) { ::SetWindowTextW(hotkeyWarning_, L""); return; }
 
-    std::wstring msg = L"Não registrados (outro programa já usa a combinação): ";
+    std::wstring list;
     for (size_t i = 0; i < failedHotkeys_.size(); ++i) {
-        if (i) msg += L", ";
-        msg += failedHotkeys_[i];
+        if (i) list += L", ";
+        list += failedHotkeys_[i];
     }
-    msg += L". Escolha outra combinação para esses.";
+    const std::wstring msg = Format(
+        T(L"Not registered (another program already uses the combination): %s. "
+          L"Choose a different combination for those."), list.c_str());
     ::SetWindowTextW(hotkeyWarning_, msg.c_str());
 }
 
@@ -279,6 +286,10 @@ constexpr WPARAM kWtsRemoteDisconnect  = 0x4;
 const GUID kGuidConsoleDisplayState =
     {0x6fe69556, 0x704a, 0x47a0, {0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47}};
 
+/// GUID_DEVINTERFACE_MONITOR, written out by hand for the same reason.
+const GUID kGuidDevInterfaceMonitor =
+    {0xe6f07b5f, 0xee97, 0x4a90, {0xb0, 0x76, 0x33, 0xf5, 0x7b, 0xf4, 0xea, 0xa7}};
+
 DynLib& WtsLib() {
     static DynLib lib(L"wtsapi32.dll");
     return lib;
@@ -292,8 +303,8 @@ void App::RegisterSessionNotifications() {
     auto reg = WtsLib().Get<Fn>("WTSRegisterSessionNotification");
     sessionNotifyOk_ = reg && reg(host_, kNotifyForThisSession);
     if (!sessionNotifyOk_)
-        KLOG_W(L"Sem aviso de troca de usuário; a reafirmação continuará ligada "
-               L"mesmo com a sessão em segundo plano.");
+        KLOG_W(L"No user-switch notification; reassertion stays on even while the "
+               L"session is in the background.");
 
     // Display on/off notification. Most external monitors reset brightness to
     // the factory default whenever they lose power, and the watchdog does not
@@ -302,11 +313,29 @@ void App::RegisterSessionNotifications() {
     displayNotify_ = ::RegisterPowerSettingNotification(
         host_, &kGuidConsoleDisplayState, DEVICE_NOTIFY_WINDOW_HANDLE);
     if (!displayNotify_)
-        KLOG_W(L"Sem aviso de tela ligada; o brilho por DDC/CI pode não voltar "
-               L"depois de desligar e religar o monitor.");
+        KLOG_W(L"No display-on notification; DDC/CI brightness may not come back "
+               L"after the monitor is switched off and on again.");
+
+    // Monitor arrival and removal. WM_DISPLAYCHANGE covers the plug that moves
+    // the desktop layout, which is most of them, but not the panel swapped on a
+    // KVM into the same resolution, nor the dock that publishes the monitor
+    // after the topology has already settled. This notification catches those.
+    DEV_BROADCAST_DEVICEINTERFACE_W filter{};
+    filter.dbcc_size = sizeof(filter);
+    filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+    filter.dbcc_classguid = kGuidDevInterfaceMonitor;
+    deviceNotify_ = ::RegisterDeviceNotificationW(host_, &filter,
+                                                  DEVICE_NOTIFY_WINDOW_HANDLE);
+    if (!deviceNotify_)
+        KLOG_W(L"No monitor-arrival notification; a panel swapped on a KVM may only "
+               L"be noticed at the next video event.");
 }
 
 void App::UnregisterSessionNotifications() {
+    if (deviceNotify_) {
+        ::UnregisterDeviceNotification(deviceNotify_);
+        deviceNotify_ = nullptr;
+    }
     if (displayNotify_) {
         ::UnregisterPowerSettingNotification(displayNotify_);
         displayNotify_ = nullptr;
@@ -322,10 +351,10 @@ void App::UpdateTrayTip() {
 
     std::wstring tip;
     if (!engine_ || !engine_->Enabled()) {
-        tip = L"Zdisplay — pausado";
+        tip = T(L"Zdisplay — paused");
     } else {
         Profile* p = engine_->Active();
-        tip = Format(L"Zdisplay — %s\nBrilho %.0f%%  Saturação %.0f%%",
+        tip = Format(T(L"Zdisplay — %s\nBrightness %.0f%%  Saturation %.0f%%"),
                      p ? p->name.c_str() : L"-",
                      p ? p->global.brightness : 100.0,
                      p ? p->global.saturation : 100.0);
@@ -345,8 +374,8 @@ void App::BuildTrayMenu() {
     Profile* active = engine_->Active();
 
     std::wstring header = on
-        ? (L"Perfil: " + (active ? active->name : std::wstring(L"-")))
-        : L"Zdisplay pausado";
+        ? (T(L"Profile: ") + (active ? active->name : std::wstring(L"-")))
+        : T(L"Zdisplay paused");
     ::AppendMenuW(menu, MF_STRING | MF_DISABLED | MF_GRAYED, 0, header.c_str());
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
@@ -358,17 +387,18 @@ void App::BuildTrayMenu() {
 
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING | (engine_->ManualProfile().empty() ? MF_CHECKED : 0),
-                  IDM_AUTO, L"Automático (regras de app e horário)");
+                  IDM_AUTO, T(L"Automatic (app and schedule rules)"));
 
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, IDM_PAUSE,
-                  on ? L"Pausar (devolve a tela)" : L"Retomar");
+                  on ? T(L"Pause (restores the display)") : T(L"Resume"));
     ::AppendMenuW(menu, MF_STRING, IDM_RESTORE,
-                  Format(L"Restaurar a tela agora\t%s", config_.hkPanic.c_str()).c_str());
+                  Format(L"%s\t%s", T(L"Restore the display now"),
+                         config_.hkPanic.c_str()).c_str());
 
     ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    ::AppendMenuW(menu, MF_STRING, IDM_SETTINGS, L"Configurações...");
-    ::AppendMenuW(menu, MF_STRING, IDM_EXIT, L"Sair");
+    ::AppendMenuW(menu, MF_STRING, IDM_SETTINGS, T(L"Settings..."));
+    ::AppendMenuW(menu, MF_STRING, IDM_EXIT, T(L"Exit"));
 
     POINT pt;
     ::GetCursorPos(&pt);
@@ -392,7 +422,7 @@ void App::TogglePause(const wchar_t* source) {
     KLOG_I(L"[pausa] alternada por: %s", source ? source : L"?");
     engine_->SetEnabled(!engine_->Enabled());
     if (pauseButton_ && ::IsWindow(pauseButton_))
-        ::SetWindowTextW(pauseButton_, engine_->Enabled() ? L"Pausar" : L"Retomar");
+        ::SetWindowTextW(pauseButton_, engine_->Enabled() ? T(L"Pause") : T(L"Resume"));
     UpdateTrayTip();
     UpdateStatusBar();
 }
@@ -435,11 +465,11 @@ void App::ShowTrayBalloon(const wchar_t* title, const wchar_t* text) {
         // with the master switch off it is discarded without any error, so that
         // case is logged separately.
         if (ToastsGloballyOff())
-            KLOG_W(L"Notificação '%s' aceita, mas as notificações estão "
-                   L"desligadas em Configurações > Sistema > Notificações — "
-                   L"o Windows vai descartá-la.", title);
+            KLOG_W(L"Notification '%s' accepted, but notifications are turned off "
+                   L"in Settings > System > Notifications - "
+                   L"Windows will discard it.", title);
         else
-            KLOG_I(L"Notificação enviada: %s", title);
+            KLOG_I(L"Notification sent: %s", title);
         return;
     }
 
@@ -450,10 +480,10 @@ void App::ShowTrayBalloon(const wchar_t* title, const wchar_t* text) {
     n.dwInfoFlags = NIIF_INFO | NIIF_NOSOUND;
     ::SetLastError(0);
     if (::Shell_NotifyIconW(NIM_MODIFY, &n))
-        KLOG_I(L"Notificação enviada: %s (sem ícone próprio; erro %lu na primeira tentativa)",
+        KLOG_I(L"Notification sent: %s (without its own icon; error %lu on the first attempt)",
                title, firstErr);
     else
-        KLOG_W(L"Não consegui mostrar a notificação '%s' (erro %lu, depois %lu).",
+        KLOG_W(L"Could not show the notification '%s' (error %lu, then %lu).",
                title, firstErr, ::GetLastError());
 }
 
@@ -473,18 +503,18 @@ void App::RegisterHotkeys() {
         failedHotkeys_.push_back(Format(L"%s (%s)", what, Trim(combo).c_str()));
     };
 
-    add(config_.hkBrightnessUp,   HK_BRIGHT_UP,   L"", L"Aumentar brilho");
-    add(config_.hkBrightnessDown, HK_BRIGHT_DOWN, L"", L"Diminuir brilho");
-    add(config_.hkSaturationUp,   HK_SAT_UP,      L"", L"Aumentar saturação");
-    add(config_.hkSaturationDown, HK_SAT_DOWN,    L"", L"Diminuir saturação");
-    add(config_.hkToggle,         HK_TOGGLE,      L"", L"Pausar / retomar");
-    add(config_.hkShow,           HK_SHOW,        L"", L"Abrir esta janela");
+    add(config_.hkBrightnessUp,   HK_BRIGHT_UP,   L"", T(L"Brightness up"));
+    add(config_.hkBrightnessDown, HK_BRIGHT_DOWN, L"", T(L"Brightness down"));
+    add(config_.hkSaturationUp,   HK_SAT_UP,      L"", T(L"Saturation up"));
+    add(config_.hkSaturationDown, HK_SAT_DOWN,    L"", T(L"Saturation down"));
+    add(config_.hkToggle,         HK_TOGGLE,      L"", T(L"Pause / resume"));
+    add(config_.hkShow,           HK_SHOW,        L"", T(L"Open this window"));
 
     // The emergency hotkey is not optional: an empty field falls back to the
     // default, since it is the way out of an unreadable screen.
     if (Trim(config_.hkPanic).empty()) config_.hkPanic = L"Ctrl+Alt+Shift+K";
     const size_t before = failedHotkeys_.size();
-    add(config_.hkPanic, HK_PANIC, L"", L"EMERGÊNCIA: devolver tela");
+    add(config_.hkPanic, HK_PANIC, L"", T(L"EMERGENCY: give the screen back"));
     const bool panicFailed = failedHotkeys_.size() > before;
 
     for (const auto& p : config_.profiles)
@@ -498,11 +528,11 @@ void App::RegisterHotkeys() {
     if (panicFailed && !panicWarned_) {
         panicWarned_ = true;
         ::MessageBoxW(settings_,
-                      Format(L"Não consegui registrar o atalho de emergência (%s): "
-                             L"outro programa já está usando essa combinação.\n\n"
-                             L"Escolha outra na aba Sistema. Enquanto isso, a "
-                             L"emergência continua disponível pelo menu da bandeja "
-                             L"e por \"zdisplay.exe --panic\".",
+                      Format(T(L"Could not register the emergency hotkey (%s): another "
+                                 L"program is already using that combination.\n\n"
+                                 L"Choose a different one on the System tab. In the "
+                                 L"meantime the emergency exit stays available from the "
+                                 L"tray menu and through \"zdisplay.exe --panic\"."),
                              Trim(config_.hkPanic).c_str()).c_str(),
                       L"Zdisplay", MB_OK | MB_ICONWARNING);
     }
@@ -548,7 +578,7 @@ LRESULT App::OnHostMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case WM_LBUTTONDBLCLK: ShowSettings(); break;
                 case WM_RBUTTONUP:
                 case WM_CONTEXTMENU:   BuildTrayMenu(); break;
-                case WM_MBUTTONUP:     TogglePause(L"clique do meio na bandeja"); break;
+                case WM_MBUTTONUP:     TogglePause(L"tray middle click"); break;
                 default: break;
             }
             return 0;
@@ -565,7 +595,7 @@ LRESULT App::OnHostMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             switch (id) {
                 case IDM_AUTO:     engine_->ClearManualProfile(); return 0;
-                case IDM_PAUSE:    TogglePause(L"menu da bandeja"); return 0;
+                case IDM_PAUSE:    TogglePause(L"tray menu"); return 0;
                 case IDM_SETTINGS: ShowSettings(); return 0;
                 case IDM_RESTORE:  EmergencyRestore(); return 0;
                 case IDM_BRIGHT_UP:
@@ -590,7 +620,7 @@ LRESULT App::OnHostMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     case HK_BRIGHT_DOWN: engine_->NudgeBrightness(-step); break;
                     case HK_SAT_UP:      engine_->NudgeSaturation(step); break;
                     case HK_SAT_DOWN:    engine_->NudgeSaturation(-step); break;
-                    case HK_TOGGLE:      TogglePause(L"atalho global"); break;
+                    case HK_TOGGLE:      TogglePause(L"global hotkey"); break;
                     case HK_SHOW:        ShowSettings(); break;
                     case HK_PANIC:       EmergencyRestore(); break;
                     case HK_PROFILE:     engine_->SetManualProfile(a.profile); break;
@@ -616,9 +646,9 @@ LRESULT App::OnHostMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 // Rearming also restarts the interval from when the reminder
                 // appeared, which is what the 20-20-20 rule means.
                 ::KillTimer(host_, TIMER_BREAK);
-                ShowTrayBalloon(L"Zdisplay — pausa para os olhos",
-                                L"Olhe 20 segundos para algo a uns 6 metros. "
-                                L"Isso relaxa o músculo que mantem o foco de perto.");
+                ShowTrayBalloon(T(L"Zdisplay — eye break"),
+                                T(L"Look at something about 6 metres away for 20 seconds. "
+                                  L"That relaxes the muscle holding your near focus."));
                 ScheduleBreakReminder();
             } else if (wp == TIMER_DARKGUARD) {
                 // One-shot: runs only after the user stops making changes.
@@ -639,6 +669,17 @@ LRESULT App::OnHostMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             engine_->OnDisplayChanged();
             if (settings_ && ::IsWindow(settings_)) { ReloadMonitorCombo(); LoadAdjustments(); }
             return 0;
+
+        case WM_DEVICECHANGE:
+            // Only the staged rediscovery is armed, never an immediate one: a
+            // single plug raises this several times, and the engine re-arms its
+            // timer, so the burst settles into one pass. The settings window is
+            // refreshed by the WM_DISPLAYCHANGE that normally accompanies it,
+            // and by the staged pass when it does not.
+            if (!exiting_ && engine_ &&
+                (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE))
+                engine_->OnDeviceChanged();
+            return TRUE;
 
         case WM_WTSSESSION_CHANGE:
             // Fast user switching. Two sessions running Zdisplay would fight
@@ -696,11 +737,11 @@ LRESULT App::OnHostMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // cookie resolves to nothing and is logged.
             CommandRequest* req = command_channel::Resolve((UINT_PTR)lp);
             if (!req) {
-                KLOG_W(L"WM_ZDISPLAY_COMMAND com identificador desconhecido (%llu): "
-                       L"mensagem ignorada.", (unsigned long long)lp);
+                KLOG_W(L"WM_ZDISPLAY_COMMAND with an unknown identifier (%llu): "
+                       L"message ignored.", (unsigned long long)lp);
                 return 0;
             }
-            if (exiting_ || !engine_) { req->reply = L"erro: o Zdisplay esta encerrando"; return 1; }
+            if (exiting_ || !engine_) { req->reply = L"error: Zdisplay is shutting down"; return 1; }
             req->reply = HandleCommand(req->command);
             return 1;
         }
@@ -768,13 +809,13 @@ std::wstring App::HandleCommand(const std::wstring& line) {
         // Sets a numeric field of the active profile.
         const auto setField = [&](AdjField f, double lo, double hi) -> std::wstring {
             const std::wstring* raw = next();
-            if (!raw) return L"erro: faltou o valor";
+            if (!raw) return L"error: the value is missing";
             double v = 0;
-            if (!ParseDouble(*raw, &v)) return L"erro: valor inválido '" + *raw + L"'";
+            if (!ParseDouble(*raw, &v)) return L"error: invalid value '" + *raw + L"'";
             v = Clamp(v, lo, hi);
 
             Profile* p = engine_->Active();
-            if (!p) return L"erro: nenhum perfil ativo";
+            if (!p) return L"error: no active profile";
 
             // Only the global value is written. Per-monitor overrides are an
             // explicit choice and are left untouched, so a single command cannot
@@ -789,7 +830,7 @@ std::wstring App::HandleCommand(const std::wstring& line) {
             if (!p->perMonitor.empty()) {
                 return L"ok (" + FormatDouble(v) + L"; " +
                        std::to_wstring(p->perMonitor.size()) +
-                       L" monitor(es) com ajuste próprio não foram alterados)";
+                       L" monitor(s) with their own settings were left unchanged)";
             }
             return L"ok (" + FormatDouble(v) + L")";
         };
@@ -804,23 +845,23 @@ std::wstring App::HandleCommand(const std::wstring& line) {
             // 4 system, 5 diagnostics.
             const std::wstring* n = next();
             double v = 0;
-            if (!n || !ParseDouble(*n, &v)) return L"erro: informe o número da aba (0..5)";
+            if (!n || !ParseDouble(*n, &v)) return L"error: give the tab number (0..5)";
             ShowSettings();
             const int index = Clamp((int)v, 0, 5);
             if (tabs_ && ::IsWindow(tabs_)) {
                 ::SendMessageW(tabs_, TCM_SETCURSEL, (WPARAM)index, 0);
                 ShowTab(index);
             }
-            reply = L"aba " + std::to_wstring(index);
+            reply = L"tab " + std::to_wstring(index);
         }
         else if (a == L"profile" || a == L"perfil") {
             const std::wstring* n = next();
-            if (!n) return L"erro: faltou o nome do perfil";
-            if (!config_.Find(*n)) return L"erro: perfil '" + *n + L"' não existe";
+            if (!n) return L"error: the profile name is missing";
+            if (!config_.Find(*n)) return L"error: profile '" + *n + L"' does not exist";
             engine_->SetManualProfile(*n);
-            reply = L"perfil '" + *n + L"' ativado";
+            reply = L"profile '" + *n + L"' activated";
         }
-        else if (a == L"auto")          { engine_->ClearManualProfile(); reply = L"modo automático"; }
+        else if (a == L"auto")          { engine_->ClearManualProfile(); reply = L"automatic mode"; }
         else if (a == L"brightness" || a == L"brilho")      reply = setField(F_BRIGHT, 10, 150);
         else if (a == L"contrast"   || a == L"contraste")   reply = setField(F_CONTRAST, 0, 200);
         else if (a == L"saturation" || a == L"saturacao")   reply = setField(F_SAT, 0, 200);
@@ -834,14 +875,14 @@ std::wstring App::HandleCommand(const std::wstring& line) {
         else if (a == L"hwbrightness")                      reply = setField(F_HWBRIGHT, 0, 100);
         else if (a == L"toggle" || a == L"pausar") {
             TogglePause();
-            reply = engine_->Enabled() ? L"ativo" : L"pausado";
+            reply = engine_->Enabled() ? L"active" : L"paused";
         }
-        else if (a == L"on"  || a == L"ligar")    { engine_->SetEnabled(true);  reply = L"ativo"; }
-        else if (a == L"off" || a == L"desligar") { engine_->SetEnabled(false); reply = L"pausado"; }
-        else if (a == L"reset" || a == L"resetar"){ engine_->ResetAll(); reply = L"tela restaurada"; }
+        else if (a == L"on"  || a == L"ligar")    { engine_->SetEnabled(true);  reply = L"active"; }
+        else if (a == L"off" || a == L"desligar") { engine_->SetEnabled(false); reply = L"paused"; }
+        else if (a == L"reset" || a == L"resetar"){ engine_->ResetAll(); reply = L"display restored"; }
         else if (a == L"panic" || a == L"emergencia") {
             EmergencyRestore();
-            reply = L"tela devolvida ao estado original e Zdisplay pausado";
+            reply = L"display returned to its original state and Zdisplay paused";
         }
         else if (a == L"status") {
             // Reports effective values, with the vision layer already applied,
@@ -852,15 +893,15 @@ std::wstring App::HandleCommand(const std::wstring& line) {
             Adjustments eff;
             if (p && prim) eff = engine_->Effective(*p, *prim);
 
-            reply = Format(L"perfil=%s; ativo=%s; manual=%s; foco=%s; "
-                           L"brilho=%.0f; saturação=%.0f; temperatura=%.0fK",
+            reply = Format(L"profile=%s; active=%s; manual=%s; focus=%s; "
+                           L"brightness=%.0f; saturation=%.0f; temperature=%.0fK",
                            p ? p->name.c_str() : L"-",
-                           engine_->Enabled() ? L"sim" : L"nao",
+                           engine_->Enabled() ? L"yes" : L"no",
                            engine_->ManualProfile().empty() ? L"-" : engine_->ManualProfile().c_str(),
                            engine_->ForegroundProcess().c_str(),
                            eff.brightness, eff.saturation, eff.temperature);
             if (config_.vision.enabled)
-                reply += Format(L"; visão=%.0f%% de noite", engine_->NightNow() * 100.0);
+                reply += Format(L"; vision=%.0f%% night", engine_->NightNow() * 100.0);
         }
         else if (a == L"list" || a == L"perfis") {
             reply.clear();
@@ -871,13 +912,13 @@ std::wstring App::HandleCommand(const std::wstring& line) {
         }
         else if (a == L"diag" || a == L"diagnostico") {
             reply = L"BACKENDS\r\n" + engine_->DescribeBackends();
-            reply += Format(L"\r\nMonitores: %d   Backends ativos: %d\r\n",
+            reply += Format(L"\r\nMonitors: %d   Active backends: %d\r\n",
                             (int)monitors::All().size(), engine_->AvailableBackendCount());
             for (const auto& m : monitors::All()) {
-                reply += L"  " + m.friendlyName + L"  [" + m.deviceName + L"]  chave=" + m.key;
-                if (m.edid.valid && m.edid.wideGamut) reply += L"  gamut-largo";
-                if (m.isHdr) reply += L"  HDR-LIGADO(rampa-não-vale)";
-                if (!m.edid.valid) reply += L"  sem-EDID";
+                reply += L"  " + m.friendlyName + L"  [" + m.deviceName + L"]  key=" + m.key;
+                if (m.edid.valid && m.edid.wideGamut) reply += L"  wide-gamut";
+                if (m.isHdr) reply += L"  HDR-ON(ramp-ignored)";
+                if (!m.edid.valid) reply += L"  no-EDID";
                 reply += L"\r\n";
                 // Same per-monitor coverage as the diagnostics tab, because
                 // --diag output is what gets pasted into problem reports.
@@ -887,18 +928,18 @@ std::wstring App::HandleCommand(const std::wstring& line) {
             for (const auto& line : engine_->Ddc()->Diagnose())
                 reply += L"  DDC/CI: " + line + L"\r\n";
             if (engine_->Gamma()->Limited())
-                reply += Format(L"\r\nATENÇÃO: o Windows aceitou apenas %.0f%% do efeito de gamma.\r\n",
+                reply += Format(L"\r\nWARNING: Windows accepted only %.0f%% of the gamma effect.\r\n",
                                 engine_->Gamma()->AcceptedFraction() * 100.0);
         }
         else if (a == L"quit" || a == L"sair") {
             ::PostMessageW(host_, WM_COMMAND, IDM_EXIT, 0);
-            return L"encerrando";
+            return L"shutting down";
         }
         else {
-            return L"erro: comando desconhecido '" + args[i] + L"'";
+            return L"error: unknown command '" + args[i] + L"'";
         }
 
-        if (reply.rfind(L"erro:", 0) == 0) return reply;
+        if (reply.rfind(kCommandErrorPrefix, 0) == 0) return reply;
     }
 
     MarkDirty();

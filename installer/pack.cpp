@@ -157,7 +157,7 @@ int wmain(int argc, wchar_t** argv) {
 
     std::vector<BYTE> raw;
     if (!ReadWholeFile(argv[1], &raw)) {
-        ::fwprintf(stderr, L"nao consegui ler %s\n", argv[1]);
+        ::fwprintf(stderr, L"could not read %s\n", argv[1]);
         return 1;
     }
 
@@ -167,7 +167,7 @@ int wmain(int argc, wchar_t** argv) {
     h.rawSize = (uint32_t)raw.size();
     h.rawCrc32 = zdpack::Crc32(raw.data(), raw.size());
     if (!Sha256(raw.data(), raw.size(), h.rawSha256)) {
-        ::fwprintf(stderr, L"nao consegui calcular o SHA-256 do programa\n");
+        ::fwprintf(stderr, L"could not compute the program's SHA-256\n");
         return 1;
     }
 
@@ -179,12 +179,12 @@ int wmain(int argc, wchar_t** argv) {
     } else {
         h.method = zdpack::kStore;
         h.storedSize = (uint32_t)raw.size();
-        ::wprintf(L"aviso: compressao indisponivel ou sem ganho; gravando cru.\n");
+        ::wprintf(L"warning: compression unavailable or no gain - writing raw.\n");
     }
 
     const void* body = compressed ? (const void*)packed.data() : (const void*)raw.data();
     if (!WriteWholeFile(argv[2], &h, sizeof(h), body, h.storedSize)) {
-        ::fwprintf(stderr, L"nao consegui gravar %s\n", argv[2]);
+        ::fwprintf(stderr, L"could not write %s\n", argv[2]);
         return 1;
     }
 

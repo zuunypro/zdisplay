@@ -54,9 +54,14 @@ void App::EmergencyRestore() {
     // The user has to know why the screen reverted on its own.
     if (trayAdded_) {
         tray_.uFlags = NIF_INFO;
-        wcscpy_s(tray_.szInfoTitle, L"Zdisplay pausado");
-        wcscpy_s(tray_.szInfo,
-                 L"A tela foi devolvida ao estado original pelo atalho de emergência.");
+        // _TRUNCATE, not wcscpy_s: these buffers are fixed at 64 and 256, and the
+        // text is a translation. wcscpy_s on an oversized string reaches the
+        // invalid parameter handler, which ends the process — losing the screen
+        // over a caption that did not fit is not a trade worth making.
+        wcsncpy_s(tray_.szInfoTitle, T(L"Zdisplay paused"), _TRUNCATE);
+        wcsncpy_s(tray_.szInfo,
+                  T(L"The display was returned to its original state by the emergency "
+                    L"hotkey."), _TRUNCATE);
         tray_.dwInfoFlags = NIIF_INFO;
         ::Shell_NotifyIconW(NIM_MODIFY, &tray_);
         tray_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
@@ -124,7 +129,7 @@ void App::GuardDarkScreen() {
         safeSnapshot_.global = Adjustments{};
         for (auto& kv : safeSnapshot_.perMonitor) kv.second = Adjustments{};
         hasSafeSnapshot_ = true;
-        KLOG_W(L"O Zdisplay iniciou com ajustes escuros; o ponto de retorno será o neutro.");
+        KLOG_W(L"Zdisplay started with dark settings; the revert point will be neutral.");
     }
 
     lastDarkAskTick_ = now;
@@ -181,9 +186,8 @@ void App::ShowDarkConfirm() {
     const int cw = S(460);
 
     ::CreateWindowExW(0, L"STATIC",
-        L"Estes ajustes deixam a tela bem escura.\n"
-        L"Se você não conseguir enxergar direito, não faça nada: o Zdisplay "
-        L"desfaz sozinho.",
+        T(L"These settings leave the screen very dark.\n"
+          L"If you cannot see properly, do nothing: Zdisplay undoes it on its own."),
         WS_CHILD | WS_VISIBLE | SS_LEFT, S(16), S(14), cw - S(40), S(56),
         confirmWnd_, nullptr, inst_, nullptr);
 
@@ -191,11 +195,11 @@ void App::ShowDarkConfirm() {
         WS_CHILD | WS_VISIBLE | SS_LEFT, S(16), S(76), cw - S(40), S(22),
         confirmWnd_, nullptr, inst_, nullptr);
 
-    HWND keep = ::CreateWindowExW(0, L"BUTTON", L"&Manter assim",
+    HWND keep = ::CreateWindowExW(0, L"BUTTON", T(L"&Keep it"),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         cw - S(300), S(108), S(130), S(30), confirmWnd_, (HMENU)(INT_PTR)IDC_KEEP, inst_, nullptr);
 
-    HWND undo = ::CreateWindowExW(0, L"BUTTON", L"&Desfazer agora",
+    HWND undo = ::CreateWindowExW(0, L"BUTTON", T(L"&Undo now"),
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
         cw - S(160), S(108), S(140), S(30), confirmWnd_, (HMENU)(INT_PTR)IDC_UNDO, inst_, nullptr);
 
@@ -210,7 +214,7 @@ void App::ShowDarkConfirm() {
 
     confirmSecondsLeft_ = kConfirmSeconds;
     ::SetWindowTextW(confirmText_,
-        Format(L"Desfazendo em %d segundos...", confirmSecondsLeft_).c_str());
+        Format(T(L"Undoing in %d seconds..."), confirmSecondsLeft_).c_str());
 
     ::SetTimer(confirmWnd_, kConfirmTimer, 1000, nullptr);
     ::ShowWindow(confirmWnd_, SW_SHOW);
@@ -220,7 +224,7 @@ void App::ShowDarkConfirm() {
     ::SetFocus(undo);
     (void)keep;
 
-    KLOG_W(L"Ajustes deixam a tela escura (luz estimada %.0f%%); pedindo confirmação.",
+    KLOG_W(L"Settings leave the screen dark (estimated light %.0f%%); asking for confirmation.",
            engine_->CurrentLuminance() * 100.0);
 }
 
@@ -248,8 +252,7 @@ void App::CloseDarkConfirm(bool keep) {
             acceptedDarkLuminance_ = engine_->CurrentLuminance();
             acceptedDarkProfile_   = engine_->Active()->name;
         }
-        KLOG_I(L"Usuário manteve os ajustes escuros (luz %d%%); "
-               L"só pergunto de novo se cair abaixo de %d%%.",
+        KLOG_I(L"User kept the dark settings (light %d%%); asking again only below %d%%.",
                (int)(acceptedDarkLuminance_ * 100 + 0.5),
                (int)((acceptedDarkLuminance_ - kDarkReaskMargin) * 100 + 0.5));
         return;
@@ -275,7 +278,7 @@ void App::CloseDarkConfirm(bool keep) {
     MarkDirty();
     UpdateTrayTip();
     RefreshUi();
-    KLOG_I(L"Ajustes escuros desfeitos automaticamente.");
+    KLOG_I(L"Dark settings undone automatically.");
 }
 
 LRESULT CALLBACK App::ConfirmProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -289,7 +292,7 @@ LRESULT CALLBACK App::ConfirmProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     self->CloseDarkConfirm(false);
                 } else if (self->confirmText_ && ::IsWindow(self->confirmText_)) {
                     ::SetWindowTextW(self->confirmText_,
-                        Format(L"Desfazendo em %d segundos...",
+                        Format(T(L"Undoing in %d seconds..."),
                                self->confirmSecondsLeft_).c_str());
                 }
                 return 0;

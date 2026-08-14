@@ -70,19 +70,19 @@ bool Hotkeys::Parse(const std::wstring& combo, UINT* mods, UINT* vk) {
 int Hotkeys::Register(const std::wstring& combo) {
     UINT mods = 0, vk = 0;
     if (!Parse(combo, &mods, &vk)) {
-        if (!Trim(combo).empty()) KLOG_W(L"Atalho invalido: '%s'", combo.c_str());
+        if (!Trim(combo).empty()) KLOG_W(L"Invalid hotkey: '%s'", combo.c_str());
         return 0;
     }
 
     const int id = nextId_++;
     // MOD_NOREPEAT prevents repeated firing while the key is held down.
     if (!::RegisterHotKey(owner_, id, mods | MOD_NOREPEAT, vk)) {
-        KLOG_W(L"Nao consegui registrar o atalho '%s' (provavelmente ja usado por outro programa).",
+        KLOG_W(L"Could not register the hotkey '%s' (most likely already taken by another program).",
                combo.c_str());
         return 0;
     }
     ids_.push_back(id);
-    KLOG_D(L"Atalho registrado: %s (id %d)", combo.c_str(), id);
+    KLOG_D(L"Hotkey registered: %s (id %d)", combo.c_str(), id);
     return id;
 }
 
@@ -255,8 +255,8 @@ bool ForegroundWatcher::Start(Callback cb, void* ctx) {
                               nullptr, Proc, 0, 0,
                               WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     if (!hook_) {
-        KLOG_W(L"Nao consegui instalar o hook de janela em primeiro plano; "
-               L"as regras por aplicativo usarao a verificacao periodica.");
+        KLOG_W(L"Could not install the foreground window hook - the "
+               L"application rules will fall back to periodic polling.");
         Poll();
         return false;
     }
@@ -490,7 +490,7 @@ bool PipeServer::Start(HWND host) {
     host_ = host;
     stop_ = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);  // manual reset
     if (!stop_) {
-        KLOG_W(L"Nao consegui criar o evento de parada do canal de comando.");
+        KLOG_W(L"Could not create the command channel stop event.");
         return false;
     }
     ::InterlockedExchange(&running_, 1);
@@ -499,7 +499,7 @@ bool PipeServer::Start(HWND host) {
         ::InterlockedExchange(&running_, 0);
         ::CloseHandle(stop_);
         stop_ = nullptr;
-        KLOG_W(L"Nao consegui criar a thread do canal de comando.");
+        KLOG_W(L"Could not create the command channel thread.");
         return false;
     }
     return true;
@@ -574,7 +574,7 @@ bool PipeServer::ServeClient(HANDLE pipe, OVERLAPPED* ov) {
 void PipeServer::Loop() {
     PipeSecurity security;
     if (!security.Ok()) {
-        KLOG_E(L"Não consegui montar o descritor de segurança do canal de comando; "
+        KLOG_E(L"Could not build the command channel security descriptor - "
                L"a linha de comando fica desativada.");
         ::InterlockedExchange(&running_, 0);
         return;
@@ -600,11 +600,11 @@ void PipeServer::Loop() {
         // Failure to create the pipe is fatal for the command channel: if the
         // name is already owned by another process, the command line is
         // disabled and reported rather than retried against that process.
-        KLOG_E(L"Não consegui criar o canal de comando (erro %lu). %s", err,
+        KLOG_E(L"Could not create the command channel (error %lu). %s", err,
                (err == ERROR_ACCESS_DENIED || err == ERROR_PIPE_BUSY ||
                 err == ERROR_ALREADY_EXISTS)
-                   ? L"O nome já pertence a outro processo — a linha de comando fica "
-                     L"DESATIVADA por segurança."
+                   ? L"The name already belongs to another process - the command line is "
+                     L"DISABLED for safety."
                    : L"A linha de comando fica desativada.");
         ::InterlockedExchange(&running_, 0);
         return;
@@ -613,7 +613,7 @@ void PipeServer::Loop() {
     OVERLAPPED ov{};
     ov.hEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!ov.hEvent) {
-        KLOG_E(L"Não consegui criar o evento de I/O do canal de comando.");
+        KLOG_E(L"Could not create the command channel I/O event.");
         ::CloseHandle(pipe);
         ::InterlockedExchange(&running_, 0);
         return;
@@ -690,9 +690,9 @@ std::wstring PipeServer::SendCommand(const std::wstring& command, DWORD timeoutM
     HANDLE pipe = INVALID_HANDLE_VALUE;
     for (;;) {
         const ULONGLONG now = ::GetTickCount64();
-        if (now >= deadline) return L"erro: o Zdisplay nao esta respondendo";
+        if (now >= deadline) return L"error: Zdisplay is not responding";
         if (!::WaitNamedPipeW(PipeName(), (DWORD)(deadline - now)))
-            return L"erro: o Zdisplay nao esta respondendo";
+            return L"error: Zdisplay is not responding";
 
         // SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION lets the server learn
         // the caller's identity but not act as the caller. The default level is
@@ -707,7 +707,7 @@ std::wstring PipeServer::SendCommand(const std::wstring& command, DWORD timeoutM
 
         // Only the lost-turn case is retried; any other error is final.
         if (::GetLastError() != ERROR_PIPE_BUSY)
-            return L"erro: nao consegui abrir o canal de comando";
+            return L"error: could not open the command channel";
     }
 
     // Defence in depth: even without the ability to impersonate, a foreign
@@ -716,9 +716,9 @@ std::wstring PipeServer::SendCommand(const std::wstring& command, DWORD timeoutM
     // sent.
     if (!ServerIsSameUser(pipe)) {
         ::CloseHandle(pipe);
-        KLOG_E(L"O canal de comando esta ocupado por um processo que nao pertence "
-               L"a este usuario; nenhum comando foi enviado.");
-        return L"erro: o canal de comando nao pertence ao Zdisplay deste usuario";
+        KLOG_E(L"The command channel is held by a process that does not belong "
+               L"to this user - no command was sent.");
+        return L"error: the command channel does not belong to this user's Zdisplay";
     }
 
     DWORD mode = PIPE_READMODE_MESSAGE;
@@ -786,9 +786,9 @@ bool Set(bool enabled) {
     ::RegCloseKey(key);
 
     if (r == ERROR_SUCCESS)
-        KLOG_I(L"Inicio automatico %s.", enabled ? L"ligado" : L"desligado");
+        KLOG_I(L"Automatic startup %s.", enabled ? L"on" : L"off");
     else
-        KLOG_W(L"Nao consegui alterar o inicio automatico (erro %ld).", r);
+        KLOG_W(L"Could not change the automatic startup (error %ld).", r);
     return r == ERROR_SUCCESS;
 }
 

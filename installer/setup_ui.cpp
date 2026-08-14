@@ -291,15 +291,15 @@ Rect4 RPrimary() { return {kWinW - 32.0f - 156.0f, kWinH - 32.0f - 46.0f, 156.0f
 int CheckCount() { return g.uninstallMode ? 1 : 4; }
 
 const wchar_t* CheckLabel(int i) {
-    if (g.uninstallMode) return L"Apagar também as configurações e os perfis";
+    if (g.uninstallMode) return Text(L"Also delete the settings and the profiles");
     switch (i) {
-        case 0: return L"Iniciar junto com o Windows";
-        case 1: return L"Criar atalho na área de trabalho";
-        case 2: return L"Abrir o Zdisplay ao terminar";
+        case 0: return Text(L"Start with Windows");
+        case 1: return Text(L"Create a desktop shortcut");
+        case 2: return Text(L"Open Zdisplay when finished");
         // The label states both the cost and the benefit: without the full
         // range Windows silently dilutes the ramp and only about half of the
         // shadow adjustment reaches the display.
-        default: return L"Liberar a faixa completa de gama — pede administrador";
+        default: return Text(L"Unlock the full gamma range — asks for administrator");
     }
 }
 
@@ -501,12 +501,12 @@ void Paint(HDC dc, const RECT& client) {
         ::DrawIconEx(g.memDC, g.Scale(32), g.Scale(28), g.icon, s, s, 0, nullptr, DI_NORMAL);
     }
 
-    const wchar_t* title = g.uninstallMode ? L"Desinstalar o Zdisplay"
-                                           : (g.upgrade ? L"Atualizar o Zdisplay" : L"Zdisplay");
+    const wchar_t* title = g.uninstallMode ? Text(L"Uninstall Zdisplay")
+                                           : (g.upgrade ? Text(L"Update Zdisplay") : L"Zdisplay");
     TextAt(g.fTitle, kText, title, {88, 26, kWinW - 140.0f, 34}, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
 
     {
-        std::wstring sub = L"Brilho, cor e saturação  ·  versão ";
+        std::wstring sub = Text(L"Brightness, color and saturation  ·  version ");
         sub += kVersionStr;
         TextAt(g.fSmall, kTextDim, sub.c_str(), {90, 62, kWinW - 140.0f, 22},
                DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
@@ -514,7 +514,7 @@ void Paint(HDC dc, const RECT& client) {
 
     if (g.stage == Stage::Ask) {
         TextAt(g.fLabel, kTextDim,
-               g.uninstallMode ? L"SERÁ REMOVIDO DE" : L"PASTA DE INSTALAÇÃO",
+               g.uninstallMode ? Text(L"WILL BE REMOVED FROM") : Text(L"INSTALL FOLDER"),
                {34, 122, kWinW - 68.0f, 18}, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX, 1);
 
         const Rect4 p = RPath();
@@ -524,7 +524,7 @@ void Paint(HDC dc, const RECT& client) {
 
         if (!g.uninstallMode) {
             const Rect4 br = RBrowse();
-            TextAt(g.fSmall, kText, L"Alterar", br,
+            TextAt(g.fSmall, kText, Text(L"Change"), br,
                    DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         }
 
@@ -535,7 +535,7 @@ void Paint(HDC dc, const RECT& client) {
                    DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         }
 
-        std::wstring foot = L"Integridade SHA-256  ·  sem administrador";
+        std::wstring foot = Text(L"SHA-256 integrity  ·  no administrator");
         const DWORD bytes = PayloadSize();
         if (bytes) {
             wchar_t mb[48];
@@ -560,18 +560,18 @@ void Paint(HDC dc, const RECT& client) {
                DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
     } else {
         const bool ok = (g.stage == Stage::Done);
-        const wchar_t* head = ok ? (g.uninstallMode ? L"Zdisplay removido" : L"Zdisplay instalado")
-                                 : L"Não deu certo";
+        const wchar_t* head = ok ? (g.uninstallMode ? Text(L"Zdisplay removed") : Text(L"Zdisplay installed"))
+                                 : Text(L"It did not work");
         TextAt(g.fTitle, kText, head, {32, 250, kWinW - 64.0f, 34},
                DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
 
         std::wstring detail;
         if (ok && !g.uninstallMode)
             detail = g.opt.launchAfter
-                         ? L"Ele já está rodando na bandeja, ao lado do relógio."
-                         : L"Procure por Zdisplay no menu Iniciar.";
+                         ? Text(L"It is already running in the tray, next to the clock.")
+                         : Text(L"Look for Zdisplay in the Start menu.");
         else if (ok)
-            detail = L"Os arquivos e os atalhos foram apagados.";
+            detail = Text(L"The files and the shortcuts have been deleted.");
         else
             detail = g.result.message;
 
@@ -582,11 +582,11 @@ void Paint(HDC dc, const RECT& client) {
     if (showPrimary) {
         const wchar_t* label;
         if (g.stage == Stage::Ask)
-            label = g.uninstallMode ? L"Desinstalar" : (g.upgrade ? L"Atualizar" : L"Instalar");
+            label = g.uninstallMode ? Text(L"Uninstall") : (g.upgrade ? Text(L"Update") : Text(L"Install"));
         else if (g.stage == Stage::Done)
-            label = L"Concluir";
+            label = Text(L"Finish");
         else
-            label = L"Fechar";
+            label = Text(L"Close");
         TextAt(g.fButton, RGB(255, 255, 255), label, RPrimary(),
                DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     }
@@ -623,12 +623,12 @@ void StartWork() {
     g.shownPercent = 0.0f;
     ::EnterCriticalSection(&g.lock);
     g.workPercent = 0;
-    ::lstrcpynW(g.workStep, L"Preparando...", 128);
+    ::lstrcpynW(g.workStep, Text(L"Preparing..."), 128);
     ::LeaveCriticalSection(&g.lock);
     g.worker = ::CreateThread(nullptr, 0, WorkerMain, nullptr, 0, nullptr);
     if (!g.worker) {
         g.result.ok = false;
-        g.result.message = L"Não consegui iniciar a instalação.";
+        g.result.message = Text(L"Could not start the installation.");
         g.stage = Stage::Failed;
     }
     ::InvalidateRect(g.wnd, nullptr, FALSE);
@@ -732,18 +732,20 @@ void Animate() {
                 if (r.ok && !g.uninstallMode && g.opt.fullGammaRange) {
                     std::wstring err;
                     if (!RequestFullGammaRange(g.wnd, &err)) {
-                        ::MessageBoxW(g.wnd,
-                                      (L"O Zdisplay foi instalado, mas a faixa completa "
-                                       L"de gama não foi liberada.\n\n" + err +
-                                       L"\n\nO programa funciona assim mesmo; o ajuste de "
-                                       L"sombras é que chega mais fraco. Dá para liberar "
-                                       L"depois rodando o instalador de novo.").c_str(),
+                        const std::wstring msg =
+                            Text(L"Zdisplay was installed, but the full gamma range "
+                                 L"was not unlocked.\n\n") + err + L"\n\n" +
+                            Text(L"The program works all the same; it is the shadow "
+                                 L"adjustment that arrives weaker. It can be unlocked "
+                                 L"later by running the installer again.");
+                        ::MessageBoxW(g.wnd, msg.c_str(),
                                       L"Zdisplay", MB_OK | MB_ICONINFORMATION);
                     } else {
-                        ::MessageBoxW(g.wnd,
-                                      L"Faixa completa de gama liberada.\n\n"
-                                      L"Ela só passa a valer no próximo login do Windows. "
-                                      L"Até lá o ajuste de sombras continua diluído.",
+                        const std::wstring msg =
+                            std::wstring(Text(L"Full gamma range unlocked.\n\n")) +
+                            Text(L"It only takes effect at the next Windows sign-in. "
+                                 L"Until then the shadow adjustment stays diluted.");
+                        ::MessageBoxW(g.wnd, msg.c_str(),
                                       L"Zdisplay", MB_OK | MB_ICONINFORMATION);
                     }
                 }
@@ -956,7 +958,7 @@ CmdLine ParseCommandLine() {
             out.silent = true;
         else if (!::lstrcmpiW(a, L"/verify") || !::lstrcmpiW(a, L"--verify"))
             out.verify = true;
-        else if (!::lstrcmpiW(a, L"--faixa-gama"))
+        else if (!::lstrcmpiW(a, L"--gamma-range") || !::lstrcmpiW(a, L"--faixa-gama"))
             out.gammaRange = true;
         else if (!::_wcsnicmp(a, L"/D=", 3) && a[3]) {
             out.hasDir = true;
@@ -975,6 +977,8 @@ void TrimTrailingSlash(std::wstring* s) {
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     HardenCurrentProcess();
+    // Before anything that produces text, including the payload error below.
+    DetectLanguage();
     g.inst = inst;
     ::InitializeCriticalSection(&g.lock);
     ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -1031,8 +1035,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
 
     if (!g.uninstallMode && PayloadSize() == 0) {
         ::MessageBoxW(nullptr,
-                      L"Este instalador foi montado sem o Zdisplay dentro dele.\n"
-                      L"Gere-o de novo com  build.bat setup.",
+                      Text(L"This installer was built without Zdisplay inside it.\n"
+                           L"Build it again with  build.bat setup."),
                       L"Zdisplay", MB_ICONERROR | MB_OK);
         ::CoUninitialize();
         ::DeleteCriticalSection(&g.lock);

@@ -197,7 +197,7 @@ void TestVcpFeatures() {
     // Human-readable names shown in the interface.
     Check(VcpValueName(0x60, 0x11) == L"HDMI 1", "valor conhecido tem nome");
     Check(VcpValueName(0x60, 0x0F) == L"DisplayPort 1", "DisplayPort tem nome");
-    Check(VcpValueName(0xD6, 0x01) == L"ligado", "energia ligada tem nome");
+    Check(VcpValueName(0xD6, 0x01) == L"on", "energia ligada tem nome");
     Check(VcpValueName(0x60, 0x7E).empty(), "valor desconhecido nao inventa nome");
     Check(VcpValueName(0x99, 0x01).empty(), "codigo fora da lista nao inventa nome");
 }
@@ -1102,6 +1102,39 @@ void TestRules() {
 void TestConfigRoundTrip() {
     Section("Configuracao: ida e volta");
 
+    // The saturation engine is stored as a word, and 1.0 wrote it in
+    // Portuguese. Moving the written form to English may not stop a file from
+    // that version loading, so the old word is read back through the real file
+    // path rather than through the parser alone.
+    {
+        const std::wstring path = ConfigPath();
+        const char* legacy = "[perfil:Antigo]\nbrilho=100\nmotorSaturacao=desligado\n";
+        HANDLE h = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            DWORD written = 0;
+            ::WriteFile(h, legacy, (DWORD)strlen(legacy), &written, nullptr);
+            ::CloseHandle(h);
+        }
+        // A leftover backup would be preferred over the file under test.
+        ::DeleteFileW((path + L".bak").c_str());
+
+        Config old;
+        LoadConfig(&old);
+        const Profile* p = old.Find(L"Antigo");
+        Check(p != nullptr, "perfil de um arquivo da 1.0 ainda carrega");
+        Check(p && p->satEngine == SatEngine::Off,
+              "o valor antigo 'desligado' continua desligando a saturacao");
+
+        // And what is written back has to read as itself, now in English.
+        Check(SaveConfig(old), "regravou o arquivo migrado");
+        Config back;
+        LoadConfig(&back);
+        const Profile* q = back.Find(L"Antigo");
+        Check(q && q->satEngine == SatEngine::Off,
+              "o motor desligado sobrevive a regravacao em ingles");
+    }
+
     Config saved;
     saved.SeedDefaults();
     const size_t seeded = saved.profiles.size();
@@ -1115,6 +1148,10 @@ void TestConfigRoundTrip() {
     saved.profiles[0].perMonitor[L"MON#ABC123"] = saved.profiles[0].global;
     saved.profiles[0].perMonitor[L"MON#ABC123"].brightness = 55;
     saved.watchdogSeconds = 42;
+    saved.language = LangChoice::En;
+    saved.performance = PerformanceMode::Light;
+    saved.adaptiveWhileDragging = true;
+    saved.animateTransitions = false;
     saved.hkPanic = L"Ctrl+Shift+F9";
     saved.confirmDarkSettings = false;
     saved.ddcMonitorModes[L"MON#ABC123"] = DdcMonitorMode::Slow;
@@ -1131,6 +1168,13 @@ void TestConfigRoundTrip() {
     Config loaded;
     Check(LoadConfig(&loaded), "leu o arquivo de volta");
     Check(loaded.profiles.size() == seeded, "manteve a quantidade de perfis");
+    Check(loaded.language == LangChoice::En, "idioma sobreviveu ao arquivo");
+    Check(loaded.performance == PerformanceMode::Light, "modo de desempenho sobreviveu");
+    // Written and read as themselves, not recomputed from the mode: a
+    // hand-edited file has to keep the values it states.
+    Check(loaded.adaptiveWhileDragging, "busca durante arraste sobreviveu");
+    Check(!loaded.animateTransitions, "animacao desligada sobreviveu");
+    Check(loaded.watchdogSeconds == 42, "watchdog editado a mao nao foi sobrescrito");
 
     if (!loaded.profiles.empty()) {
         const Adjustments& a = loaded.profiles[0].global;
@@ -1925,6 +1969,226 @@ void TestRegressions() {
     }
 }
 
+// Interface language
+
+void TestLanguage() {
+    Section("Idioma da interface");
+
+    // The whole table: no side may be empty, and no English key may repeat.
+    // A repeated key is the one failure this design allows that the compiler
+    // cannot see, because the second entry would silently never be reached.
+    {
+        bool allFilled = true, allUnique = true;
+        std::string bad;
+        std::vector<std::wstring> seen;
+        for (size_t i = 0; i < TranslationCount(); ++i) {
+            const wchar_t* en = nullptr;
+            const wchar_t* pt = nullptr;
+            TranslationAt(i, &en, &pt);
+            if (!en || !en[0] || !pt || !pt[0]) {
+                allFilled = false;
+                bad += " indice=" + std::to_string(i);
+            }
+            if (en) {
+                for (const auto& s : seen)
+                    if (s == en) { allUnique = false; bad += " repetida=" + Utf8(en); }
+                seen.push_back(en);
+            }
+        }
+        Check(allFilled, "toda entrada da tabela tem os dois lados preenchidos", bad);
+        Check(allUnique, "nenhuma chave em ingles se repete", bad);
+        Check(TranslationCount() > 0, "a tabela nao esta vazia");
+    }
+
+    // Under English the key is returned as it stands, including a key that is
+    // not in the table at all.
+    SetLanguage(LangChoice::En);
+    Check(std::wstring(T(L"Quality")) == L"Quality", "ingles devolve a propria chave");
+    Check(std::wstring(T(L"Nao esta na tabela")) == L"Nao esta na tabela",
+          "chave ausente devolve o texto original");
+    Check(std::wstring(T(nullptr)).empty(), "chave nula devolve vazio");
+
+    // Under Portuguese every key in the table must resolve to its translation.
+    SetLanguage(LangChoice::Pt);
+    {
+        bool allResolve = true;
+        std::string bad;
+        for (size_t i = 0; i < TranslationCount(); ++i) {
+            const wchar_t* en = nullptr;
+            const wchar_t* pt = nullptr;
+            TranslationAt(i, &en, &pt);
+            if (en && pt && std::wstring(T(en)) != pt) {
+                allResolve = false;
+                bad += " " + Utf8(en);
+            }
+        }
+        Check(allResolve, "toda chave resolve para a traducao em portugues", bad);
+    }
+    Check(std::wstring(T(L"Nao esta na tabela")) == L"Nao esta na tabela",
+          "chave ausente cai para o ingles em vez de vazio");
+
+    // Portuguese in every regional variant, since the program never uses
+    // wording that separates pt-BR from pt-PT.
+    Check(LangFromLangId(0x0416) == Lang::Pt, "pt-BR resolve para portugues");
+    Check(LangFromLangId(0x0816) == Lang::Pt, "pt-PT resolve para portugues");
+    Check(LangFromLangId(0x0409) == Lang::En, "en-US resolve para ingles");
+    Check(LangFromLangId(0x0809) == Lang::En, "en-GB resolve para ingles");
+    // An unshipped language must land on English, not on an empty interface.
+    Check(LangFromLangId(0x0411) == Lang::En, "japones cai para ingles");
+    Check(LangFromLangId(0x0407) == Lang::En, "alemao cai para ingles");
+    Check(LangFromLangId(0) == Lang::En, "langid invalido cai para ingles");
+
+    // The choice stored in the file, round trip included.
+    Check(ParseLangChoice(L"pt") == LangChoice::Pt, "idioma pt reconhecido");
+    Check(ParseLangChoice(L"en") == LangChoice::En, "idioma en reconhecido");
+    Check(ParseLangChoice(L"auto") == LangChoice::Auto, "idioma auto reconhecido");
+    Check(ParseLangChoice(L"  EN  ") == LangChoice::En, "idioma tolera espaco e caixa");
+    Check(ParseLangChoice(L"portugues") == LangChoice::Pt, "nome por extenso reconhecido");
+    // A typo must not leave the program with no interface text.
+    Check(ParseLangChoice(L"klingon") == LangChoice::Auto, "idioma desconhecido vira auto");
+    Check(ParseLangChoice(L"") == LangChoice::Auto, "idioma vazio vira auto");
+    for (auto c : { LangChoice::Auto, LangChoice::Pt, LangChoice::En })
+        Check(ParseLangChoice(LangChoiceName(c)) == c, "idioma sobrevive ao ida e volta");
+
+    // Selecting a language actually changes what T() returns.
+    SetLanguage(LangChoice::Pt);
+    const std::wstring pt = T(L"Quality");
+    SetLanguage(LangChoice::En);
+    const std::wstring en = T(L"Quality");
+    Check(pt == L"Qualidade" && en == L"Quality", "T() acompanha o idioma escolhido");
+
+    // English is the primary language: it is column zero, so it is what every
+    // other column falls back to when a translation is missing.
+    Check((int)Lang::En == 0, "ingles e a coluna primaria da tabela");
+
+    // The drop-down mapping. The list is filled as {automatic, English,
+    // Portuguese}; if the mapping drifts from that order, picking a language
+    // stores a different one and nothing says so.
+    Check(LanguageChoiceAt(0) == LangChoice::Auto, "indice 0 do seletor e automatico");
+    Check(LanguageChoiceAt(1) == LangChoice::En,   "indice 1 do seletor e ingles");
+    Check(LanguageChoiceAt(2) == LangChoice::Pt,   "indice 2 do seletor e portugues");
+    // Out of range must land somewhere valid, not on a random enum value.
+    Check(LanguageChoiceAt(-1) == LangChoice::Auto, "indice negativo cai para automatico");
+    Check(LanguageChoiceAt(99) == LangChoice::Auto, "indice fora da lista cai para automatico");
+    for (auto c : { LangChoice::Auto, LangChoice::Pt, LangChoice::En })
+        Check(LanguageChoiceAt(LanguageIndexOf(c)) == c,
+              "idioma sobrevive ao ida e volta pelo indice do seletor");
+
+    // The shipped profiles are named through the table, so their names change
+    // with the language. What must not change is that they refer to each other:
+    // the default profile and the seeded schedule rule both name a profile that
+    // has to exist, or a fresh install starts with a rule pointing at nothing.
+    for (auto choice : { LangChoice::En, LangChoice::Pt }) {
+        SetLanguage(choice);
+        Config c;
+        c.SeedDefaults();
+        const char* where = choice == LangChoice::Pt ? "o perfil padrao semeado existe (pt)"
+                                                     : "o perfil padrao semeado existe (en)";
+        Check(c.Find(c.defaultProfile) != nullptr, where, Utf8(c.defaultProfile));
+        bool rulesResolve = true;
+        std::string bad;
+        for (const auto& r : c.scheduleRules)
+            if (!c.Find(r.profile)) { rulesResolve = false; bad += " " + Utf8(r.profile); }
+        for (const auto& r : c.appRules)
+            if (!c.Find(r.profile)) { rulesResolve = false; bad += " " + Utf8(r.profile); }
+        Check(rulesResolve, "toda regra semeada aponta para um perfil que existe", bad);
+        Check(c.profiles.size() >= 2, "a semeadura cria mais de um perfil");
+    }
+
+    // Same seeding, different language: the names must actually differ, or the
+    // translation is not reaching the one place a profile name is created.
+    SetLanguage(LangChoice::En);
+    Config en2;
+    en2.SeedDefaults();
+    SetLanguage(LangChoice::Pt);
+    Config pt2;
+    pt2.SeedDefaults();
+    Check(en2.profiles.size() == pt2.profiles.size(),
+          "as duas linguas semeiam a mesma quantidade de perfis");
+    Check(en2.defaultProfile == L"Default" && pt2.defaultProfile == L"Padrão",
+          "o nome do perfil padrao acompanha o idioma", Utf8(pt2.defaultProfile));
+
+    SetLanguage(LangChoice::En);
+}
+
+// Performance modes
+
+void TestPerformanceModes() {
+    Section("Modos de desempenho");
+
+    // Same hazard as the language list: the drop-down is filled heaviest to
+    // lightest, and the mapping has to agree with that order.
+    Check(PerformanceModeAt(0) == PerformanceMode::Quality,  "indice 0 e qualidade");
+    Check(PerformanceModeAt(1) == PerformanceMode::Balanced, "indice 1 e equilibrado");
+    Check(PerformanceModeAt(2) == PerformanceMode::Light,    "indice 2 e leve");
+    Check(PerformanceModeAt(-1) == PerformanceMode::Balanced,
+          "indice negativo cai para equilibrado");
+    Check(PerformanceModeAt(99) == PerformanceMode::Balanced,
+          "indice fora da lista cai para equilibrado");
+    for (auto m : { PerformanceMode::Quality, PerformanceMode::Balanced, PerformanceMode::Light })
+        Check(PerformanceModeAt(PerformanceIndexOf(m)) == m,
+              "modo sobrevive ao ida e volta pelo indice do seletor");
+
+    const PerformanceParams quality  = ParamsFor(PerformanceMode::Quality);
+    const PerformanceParams balanced = ParamsFor(PerformanceMode::Balanced);
+    const PerformanceParams light    = ParamsFor(PerformanceMode::Light);
+
+    // The ordering is the whole promise of the setting: lighter must never wake
+    // the machine more often than heavier.
+    Check(quality.watchdogSeconds < balanced.watchdogSeconds &&
+          balanced.watchdogSeconds < light.watchdogSeconds,
+          "o watchdog espaca de qualidade para leve");
+
+    // Every mode must stay inside the range LoadConfig clamps to, or picking a
+    // mode would produce a value the loader then silently rewrites.
+    for (auto m : { PerformanceMode::Quality, PerformanceMode::Balanced, PerformanceMode::Light }) {
+        const int s = ParamsFor(m).watchdogSeconds;
+        Check(s == Clamp(s, 0, 300), "watchdog do modo fica dentro da faixa aceita");
+    }
+
+    Check(quality.adaptiveWhileDragging, "qualidade busca durante o arraste");
+    Check(!light.adaptiveWhileDragging, "leve nao busca durante o arraste");
+    Check(!light.animateTransitions, "leve troca de perfil sem animacao");
+    Check(balanced.animateTransitions, "equilibrado mantem a animacao");
+
+    // Balanced must reproduce the shipped defaults exactly, so that a v1.0
+    // configuration behaves identically after the field appears.
+    {
+        Config fresh;
+        Check(fresh.performance == PerformanceMode::Balanced, "o padrao e equilibrado");
+        Check(balanced.watchdogSeconds == fresh.watchdogSeconds &&
+              balanced.adaptiveWhileDragging == fresh.adaptiveWhileDragging &&
+              balanced.animateTransitions == fresh.animateTransitions,
+              "equilibrado reproduz exatamente o padrao de fabrica");
+    }
+
+    // Applying a mode writes the derived values into the configuration.
+    {
+        Config c;
+        c.performance = PerformanceMode::Light;
+        ApplyPerformanceMode(&c);
+        Check(c.watchdogSeconds == light.watchdogSeconds &&
+              c.adaptiveWhileDragging == light.adaptiveWhileDragging &&
+              c.animateTransitions == light.animateTransitions,
+              "aplicar o modo grava os parametros na configuracao");
+
+        c.performance = PerformanceMode::Quality;
+        ApplyPerformanceMode(&c);
+        Check(c.watchdogSeconds == quality.watchdogSeconds,
+              "trocar de modo regrava os parametros");
+    }
+    ApplyPerformanceMode(nullptr);   // must not crash
+
+    Check(ParsePerformanceMode(L"qualidade") == PerformanceMode::Quality, "modo qualidade");
+    Check(ParsePerformanceMode(L"quality") == PerformanceMode::Quality, "modo quality em ingles");
+    Check(ParsePerformanceMode(L"  LEVE ") == PerformanceMode::Light, "modo tolera espaco e caixa");
+    // A typo must land on the middle mode, never on an extreme.
+    Check(ParsePerformanceMode(L"turbo") == PerformanceMode::Balanced, "modo desconhecido vira equilibrado");
+    Check(ParsePerformanceMode(L"") == PerformanceMode::Balanced, "modo vazio vira equilibrado");
+    for (auto m : { PerformanceMode::Quality, PerformanceMode::Balanced, PerformanceMode::Light })
+        Check(ParsePerformanceMode(PerformanceModeName(m)) == m, "modo sobrevive ao ida e volta");
+}
+
 }  // namespace
 
 int wmain() {
@@ -1985,6 +2249,8 @@ int wmain() {
     TestDdcSafetyRules();
     TestSolar();
     TestVision();
+    TestLanguage();
+    TestPerformanceModes();
 
     printf("\n----------------------------------------\n");
     printf("%d testes passaram, %d falharam.\n", g_pass, g_fail);

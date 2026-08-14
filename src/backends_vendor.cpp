@@ -64,7 +64,7 @@ typedef int   (__cdecl *PfnSetHue)(void* display, unsigned outputId, int angle);
 bool NvapiBackend::Init() {
     const wchar_t* dllName = (sizeof(void*) == 8) ? L"nvapi64.dll" : L"nvapi.dll";
     if (!lib_.Load(dllName)) {
-        details_ = L"nvapi64.dll não encontrada (sem GPU NVIDIA)";
+        details_ = L"nvapi64.dll not found (no NVIDIA GPU)";
         return false;
     }
 
@@ -88,13 +88,13 @@ bool NvapiBackend::Init() {
 
     auto initFn = (nv::PfnInitialize)fns_[nv::FN_Init];
     if (!initFn || initFn() != nv::NVAPI_OK) {
-        details_ = L"NvAPI_Initialize falhou";
+        details_ = L"NvAPI_Initialize failed";
         return false;
     }
 
     auto enumFn = (nv::PfnEnumDisplay)fns_[nv::FN_EnumDisplay];
     if (!enumFn || (!fns_[nv::FN_SetDvcEx] && !fns_[nv::FN_SetDvc])) {
-        details_ = L"driver NVIDIA sem as funções de vibrance";
+        details_ = L"NVIDIA driver without the vibrance entry points";
         return false;
     }
 
@@ -102,7 +102,7 @@ bool NvapiBackend::Init() {
 
     Enumerate();
     if (displays_.empty()) {
-        details_ = L"nenhum display NVIDIA ativo";
+        details_ = L"no active NVIDIA display";
         return false;
     }
 
@@ -401,7 +401,7 @@ void* __stdcall AllocCallback(int size) {
 
 bool AdlBackend::Init() {
     if (!lib_.Load(L"atiadlxx.dll") && !lib_.Load(L"atiadlxy.dll")) {
-        details_ = L"atiadlxx.dll não encontrada (sem GPU AMD)";
+        details_ = L"atiadlxx.dll not found (no AMD GPU)";
         return false;
     }
 
@@ -415,25 +415,25 @@ bool AdlBackend::Init() {
 
     for (int i = 0; i < adl::FN_COUNT; ++i) {
         if (!fns_[i]) {
-            details_ = L"driver AMD sem as funções de cor do ADL";
+            details_ = L"AMD driver without the ADL color entry points";
             return false;
         }
     }
 
     auto create = (adl::PfnMainControlCreate)fns_[adl::FN_Create];
     if (create(adl::AllocCallback, 1) != adl::ADL_OK) {
-        details_ = L"ADL_Main_Control_Create falhou";
+        details_ = L"ADL_Main_Control_Create failed";
         return false;
     }
     apiInitialized_ = true;
 
     Enumerate();
     if (displays_.empty()) {
-        details_ = L"nenhum display AMD com controle de cor";
+        details_ = L"no AMD display with color control";
         return false;
     }
 
-    details_ = Format(L"%d display(s) com saturação/matiz por hardware", (int)displays_.size());
+    details_ = Format(L"%d display(s) with hardware saturation/hue", (int)displays_.size());
     available_ = true;
     return true;
 }

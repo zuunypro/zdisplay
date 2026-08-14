@@ -97,11 +97,11 @@ IoResult Invoke(Call call, int maxAttempts = kMaxAttempts,
 
 const wchar_t* ErrorKindName(DdcErrorKind kind) {
     switch (kind) {
-        case DdcErrorKind::None:        return L"nenhum";
-        case DdcErrorKind::Unsupported: return L"não suportado";
-        case DdcErrorKind::Transient:   return L"transitorio";
-        case DdcErrorKind::Unavailable: return L"monitor/handle indisponível";
-        case DdcErrorKind::Permanent:   return L"permanente/desconhecido";
+        case DdcErrorKind::None:        return L"none";
+        case DdcErrorKind::Unsupported: return L"unsupported";
+        case DdcErrorKind::Transient:   return L"transient";
+        case DdcErrorKind::Unavailable: return L"monitor/handle unavailable";
+        case DdcErrorKind::Permanent:   return L"permanent/unknown";
     }
     return L"desconhecido";
 }
@@ -390,7 +390,7 @@ void DdcciBackend::LoadSafetyState() {
         capsUnsafe_[key] = L"queda durante leitura de capacidades";
         SaveSafetyState();
         ::DeleteFileW(marker.c_str());
-        KLOG_W(L"DDC/CI: quarentena restaurada para '%s' após queda durante capabilities.",
+        KLOG_W(L"DDC/CI: quarantine restored for '%s' after a crash during capabilities.",
                key.c_str());
     }
 }
@@ -405,7 +405,7 @@ void DdcciBackend::SaveSafetyState() const {
     const std::wstring path = ConfigDir() + L"\\ddc-unstable.txt";
     if (data.empty()) ::DeleteFileW(path.c_str());
     else if (!ddc::WriteSmallFileAtomic(path, data))
-        KLOG_W(L"DDC/CI: não consegui persistir a lista de quarentena.");
+        KLOG_W(L"DDC/CI: could not persist the quarantine list.");
 }
 
 void DdcciBackend::MarkCapsUnsafe(const std::wstring& monitorKey, const std::wstring& stage) {
@@ -433,7 +433,7 @@ int DdcciBackend::ClearSafetyBlocks() {
 
 bool DdcciBackend::Init() {
     if (!lib_.Load(L"dxva2.dll")) {
-        details_ = L"dxva2.dll indisponível";
+        details_ = L"dxva2.dll unavailable";
         return false;
     }
 
@@ -453,25 +453,25 @@ bool DdcciBackend::Init() {
     // API rejects, and the high-level path is only a preference.
     if (!fns_[ddc::FN_GetCount] || !fns_[ddc::FN_GetMonitors] ||
         (!fns_[ddc::FN_SetBrightness] && !fns_[ddc::FN_SetVcp])) {
-        details_ = L"dxva2.dll sem as funções de DDC/CI";
+        details_ = L"dxva2.dll without the DDC/CI entry points";
         return false;
     }
 
     LoadSafetyState();
     Discover();
     if (monitors_.empty()) {
-        details_ = L"nenhum monitor respondeu a DDC/CI (normal em tela de notebook)";
+        details_ = L"no monitor answered DDC/CI (normal on a laptop panel)";
         return false;
     }
 
     wake_ = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!wake_) { details_ = L"não consegui criar o evento da fila"; return false; }
+    if (!wake_) { details_ = L"could not create the queue event"; return false; }
 
     ::InterlockedExchange(&running_, 1);
     thread_ = ::CreateThread(nullptr, 0, WorkerThunk, this, 0, nullptr);
     if (!thread_) {
         ::InterlockedExchange(&running_, 0);
-        details_ = L"não consegui criar a thread de DDC/CI";
+        details_ = L"could not create the DDC/CI thread";
         return false;
     }
     ::SetThreadPriority(thread_, THREAD_PRIORITY_BELOW_NORMAL);
@@ -483,7 +483,7 @@ bool DdcciBackend::Init() {
         desc += kv.second.hasBrightness ? L": brilho" : L": -";
         if (kv.second.hasContrast) desc += L"+contraste";
         if (kv.second.hasGain)     desc += L"+ganho RGB";
-        if (kv.second.viaVcp)      desc += L" (VCP cru)";
+        if (kv.second.viaVcp)      desc += L" (raw VCP)";
     }
     details_ = desc;
     available_ = true;
@@ -539,6 +539,9 @@ void DdcciBackend::ProbeFeatures() {
     {
         Guard g(lock_);
         for (const auto& kv : monitors_) {
+            // Extra features are addressed per monitor key, which never names a
+            // mirrored panel, so probing one would only spend slow commands.
+            if (kv.second.isClone) continue;
             if (kv.second.handleUnavailable || kv.second.featuresProbed) continue;
             Job j;
             j.key = kv.first;
@@ -588,7 +591,7 @@ void DdcciBackend::ProbeFeatures() {
         if (it == monitors_.end()) continue;
         it->second.features = found;
         it->second.featuresProbed = true;
-        KLOG_I(L"DDC/CI: '%s' expõe %d recurso(s) extra(s).",
+        KLOG_I(L"DDC/CI: '%s' exposes %d extra feature(s).",
                it->second.description.c_str(), (int)found.size());
     }
 }
@@ -601,6 +604,10 @@ void DdcciBackend::RunRoundTrip() {
     {
         Guard g(lock_);
         for (const auto& kv : monitors_) {
+            // The round trip is a real EEPROM write and restore, requested by
+            // the user for one monitor; running it on the mirrored panel too
+            // would double the wear for the same answer.
+            if (kv.second.isClone) continue;
             if (!kv.second.hasBrightness || kv.second.handleUnavailable) continue;
             if (kv.second.brightnessState.blocked) continue;
             Job j;
@@ -625,9 +632,9 @@ void DdcciBackend::RunRoundTrip() {
         DWORD lo = j.lo, cur = j.current, hi = j.hi;
         bool usedVcp = false;
         if (!ddc::Read(fns_, j.handle, j.code, &lo, &cur, &hi, &usedVcp)) {
-            verdict = L"não respondeu à leitura";
+            verdict = L"did not answer the read";
         } else if (hi <= lo) {
-            verdict = Format(L"faixa inválida (%lu..%lu)", lo, hi);
+            verdict = Format(L"invalid range (%lu..%lu)", lo, hi);
         } else {
             // A step that fits inside the range and stays clear of both ends:
             // a panel saturating at its minimum or maximum would otherwise look
@@ -637,22 +644,22 @@ void DdcciBackend::RunRoundTrip() {
             const DWORD probe = (cur + step <= hi) ? cur + step
                               : (cur >= lo + step ? cur - step : hi);
             if (probe == cur) {
-                verdict = L"faixa curta demais para testar";
+                verdict = L"range too short to test";
             } else {
                 const ddc::IoResult w = ddc::Write(fns_, j.handle, j.code, probe, j.viaVcp);
                 if (!w.ok) {
-                    verdict = Format(L"a escrita falhou (%s)", ddc::ErrorKindName(w.kind));
+                    verdict = Format(L"the write failed (%s)", ddc::ErrorKindName(w.kind));
                 } else {
                     ::Sleep((DWORD)ddc::kMinIntervalMs);
                     DWORD lo2 = 0, back = 0, hi2 = 0;
                     bool vcp2 = false;
                     if (!ddc::Read(fns_, j.handle, j.code, &lo2, &back, &hi2, &vcp2))
-                        verdict = L"escreveu, mas não respondeu à releitura";
+                        verdict = L"wrote, but did not answer the read-back";
                     else if (back == probe)
                         verdict = Format(L"OK — obedeceu (%lu -> %lu, faixa %lu..%lu)",
                                          cur, probe, lo, hi);
                     else
-                        verdict = Format(L"NÃO obedeceu — pedi %lu e ficou %lu "
+                        verdict = Format(L"did NOT obey - asked %lu and got %lu "
                                          L"(o monitor aceitou o comando e ignorou)",
                                          probe, back);
 
@@ -663,7 +670,7 @@ void DdcciBackend::RunRoundTrip() {
             }
         }
 
-        KLOG_I(L"DDC/CI: teste de ida e volta em '%s': %s",
+        KLOG_I(L"DDC/CI: round-trip test on '%s': %s",
                j.description.c_str(), verdict.c_str());
         {
             Guard g(lock_);
@@ -737,13 +744,14 @@ void DdcciBackend::DiscoverNow() {
 
     Guard g(lock_);
     ReleaseHandles();
+    unresponsive_.clear();
     ::InterlockedExchange(&anyGain_, 0);
     for (const auto& target : monitors::All()) {
         DdcMonitorMode mode = DdcMonitorMode::Auto;
         auto modeIt = monitorModes_.find(target.key);
         if (modeIt != monitorModes_.end()) mode = modeIt->second;
         if (mode == DdcMonitorMode::Disabled) {
-            KLOG_I(L"DDC/CI: '%s' excluido pelo usuário antes de qualquer sondagem.",
+            KLOG_I(L"DDC/CI: '%s' excluded by the user before any probing.",
                    target.friendlyName.c_str());
             continue;
         }
@@ -752,9 +760,9 @@ void DdcciBackend::DiscoverNow() {
             : std::wstring();
         const MonitorQuirk* quirk = FindMonitorQuirk(edidId);
         if (quirk && quirk->block) {
-            KLOG_W(L"DDC/CI: '%s' (%s) tem regra de bloqueio (%s); nenhuma chamada DDC será feita.",
+            KLOG_W(L"DDC/CI: '%s' (%s) has a blocking rule (%s) - no DDC call will be made.",
                    target.friendlyName.c_str(), edidId.c_str(),
-                   quirk->note.empty() ? L"regra do usuário" : quirk->note.c_str());
+                   quirk->note.empty() ? L"user rule" : quirk->note.c_str());
             continue;
         }
         // Some panels expose brightness on a non-standard VCP code: they accept
@@ -762,7 +770,7 @@ void DdcciBackend::DiscoverNow() {
         const BYTE brightnessCode = (quirk && quirk->brightnessVcp > 0)
             ? (BYTE)quirk->brightnessVcp : ddc::VCP_LUMINANCE;
         if (brightnessCode != ddc::VCP_LUMINANCE)
-            KLOG_I(L"DDC/CI: '%s' (%s) usa o registrador 0x%02X para brilho.",
+            KLOG_I(L"DDC/CI: '%s' (%s) uses register 0x%02X for brightness.",
                    target.friendlyName.c_str(), edidId.c_str(), (unsigned)brightnessCode);
 
         DWORD count = 0;
@@ -774,9 +782,13 @@ void DdcciBackend::DiscoverNow() {
         if (!getMonitors(target.handle, count, arr)) { ::free(arr); continue; }
         owned_.push_back(std::make_pair((HANDLE)arr, (size_t)count));
 
-        // One HMONITOR can expose several physical monitors; the first one that
-        // actually answers a read wins. Reading is more reliable than
-        // GetMonitorCapabilities, which many monitors misreport.
+        // One HMONITOR can expose several physical monitors, which is how
+        // mirrored displays arrive. Every panel that answers a read is kept, the
+        // first under the monitor's own key and the rest as clones of it, so a
+        // clone pair is adjusted and restored on both panels instead of one.
+        // Reading is more reliable than GetMonitorCapabilities, which many
+        // monitors misreport.
+        int responders = 0;
         for (DWORD i = 0; i < count; ++i) {
             Phys p;
             p.mode = mode;
@@ -805,11 +817,11 @@ void DdcciBackend::DiscoverNow() {
                 // produce a nonsensical baseline.
                 if (cur < lo || cur > hi)
                     KLOG_W(L"DDC/CI: '%s' respondeu brilho %lu fora da faixa %lu..%lu; "
-                           L"tratando como o limite mais próximo.",
+                           L"treating it as the nearest limit.",
                            p.description.c_str(), cur, lo, hi);
                 p.origBrightness = DdcRawToPercent(cur, lo, hi);
                 if (typeB != 1)
-                    KLOG_W(L"DDC/CI: '%s' devolveu tipo %lu para brilho continuo; escrita bloqueada.",
+                    KLOG_W(L"DDC/CI: '%s' returned type %lu for continuous brightness - writes blocked.",
                            p.description.c_str(), typeB);
             }
             if (ddc::Read(fns_, p.handle, ddc::VCP_CONTRAST, &lo, &cur, &hi,
@@ -824,7 +836,7 @@ void DdcciBackend::DiscoverNow() {
                 p.contrastState.rawMaximum = hi;
                 p.origContrast = DdcRawToPercent(cur, lo, hi);
                 if (typeC != 1)
-                    KLOG_W(L"DDC/CI: '%s' devolveu tipo %lu para contraste continuo; escrita bloqueada.",
+                    KLOG_W(L"DDC/CI: '%s' returned type %lu for continuous contrast - writes blocked.",
                            p.description.c_str(), typeC);
             }
             // If any feature needed the raw path, all of them use it: the
@@ -855,7 +867,7 @@ void DdcciBackend::DiscoverNow() {
                     if (ghi > gMax) gMax = ghi;
                 } else {
                     if (readResult.ok && type != 1)
-                        KLOG_W(L"DDC/CI: '%s' declarou ganho 0x%02X como momentaneo; ignorando por seguranca.",
+                        KLOG_W(L"DDC/CI: '%s' declared gain 0x%02X as momentary - ignoring it to be safe.",
                                p.description.c_str(), (unsigned)ddc::kGainCodes[c]);
                     allGains = false;
                 }
@@ -867,9 +879,20 @@ void DdcciBackend::DiscoverNow() {
             }
 
             if (p.hasBrightness || p.hasContrast) {
+                // The first panel answers under the monitor's own key, which is
+                // what the rest of the program addresses. Further panels get a
+                // derived key: the unit separator cannot occur in an EDID
+                // identity or a device path, so a clone key can never collide
+                // with a real monitor key.
+                const std::wstring entryKey = responders == 0
+                    ? target.key
+                    : target.key + Format(L"\x1F" L"clone%lu", (unsigned long)i);
+                p.isClone = responders != 0;
+                ++responders;
+
                 // A previously captured original wins: the value just read may
                 // be one this process wrote.
-                auto prev = previous.find(target.key);
+                auto prev = previous.find(entryKey);
                 if (prev != previous.end()) {
                     if (prev->second.b >= 0) p.origBrightness = prev->second.b;
                     if (prev->second.c >= 0) p.origContrast   = prev->second.c;
@@ -908,14 +931,31 @@ void DdcciBackend::DiscoverNow() {
                                capsUnsafe_.find(target.key) != capsUnsafe_.end();
 
                 if (p.hasGain) ::InterlockedExchange(&anyGain_, 1);
-                KLOG_I(L"DDC/CI: %s em %s (original: brilho %d%%, contraste %d%%)%s%s",
+                KLOG_I(L"DDC/CI: %s em %s (original: brilho %d%%, contraste %d%%)%s%s%s",
                        p.description.c_str(), target.friendlyName.c_str(),
                        p.origBrightness, p.origContrast,
-                       p.viaVcp ? L" [VCP cru: a API de alto nível recusou este monitor]" : L"",
-                       p.hasGain ? L" [ganho RGB por hardware]" : L"");
-                monitors_[target.key] = p;
-                break;
+                       p.viaVcp ? L" [raw VCP: the high-level API refused this monitor]" : L"",
+                       p.hasGain ? L" [ganho RGB por hardware]" : L"",
+                       p.isClone ? L" [painel espelhado]" : L"");
+                if (p.isClone) {
+                    auto primary = monitors_.find(target.key);
+                    if (primary != monitors_.end()) primary->second.clones.push_back(entryKey);
+                }
+                monitors_[entryKey] = p;
             }
+        }
+
+        if (responders == 0) {
+            // Found and mute. Recorded instead of dropped: leaving the panel out
+            // of the list is indistinguishable from not having detected it, and
+            // the user needs to be able to tell those two apart.
+            unresponsive_[target.key] = target.friendlyName;
+            // Informational, not a warning: a monitor without DDC/CI, or with it
+            // switched off in its own menu, is an ordinary configuration. Raising
+            // a warning for it would teach the user to ignore the ones that matter.
+            KLOG_I(L"DDC/CI: '%s' was found but answered neither brightness nor "
+                   L"contrast - this monitor is left without hardware control.",
+                   target.friendlyName.c_str());
         }
     }
 
@@ -932,9 +972,13 @@ void DdcciBackend::FetchCapabilities() {
         Guard g(lock_);
         const bool allUnsafe = capsUnsafe_.find(L"*") != capsUnsafe_.end();
         for (const auto& kv : monitors_) {
+            // Mirrored panels are skipped: the isolated helper resolves its
+            // argument through monitors::ByKey, which only knows real monitor
+            // keys, and the string feeds diagnostics the primary already carries.
+            if (kv.second.isClone) continue;
             const bool unsafe = allUnsafe || capsUnsafe_.find(kv.first) != capsUnsafe_.end();
             if (unsafe) {
-                KLOG_W(L"DDC/CI: capabilities de '%s' em quarentena; usando apenas evidencia viva.",
+                KLOG_W(L"DDC/CI: capabilities of '%s' quarantined - using live evidence only.",
                        kv.second.description.c_str());
             } else if (kv.second.caps.empty()) {
                 todo.push_back(std::make_pair(kv.first, kv.second.handle));
@@ -948,7 +992,7 @@ void DdcciBackend::FetchCapabilities() {
 
         const std::string payload = WideToUtf8(item.first) + "\ncapabilities\n";
         if (!ddc::WriteSmallFileAtomic(marker, payload)) {
-            KLOG_W(L"DDC/CI: não consegui armar a proteção de crash; capabilities de '%s' puladas.",
+            KLOG_W(L"DDC/CI: could not arm the crash guard - capabilities of '%s' skipped.",
                    item.first.c_str());
             continue;
         }
@@ -959,12 +1003,12 @@ void DdcciBackend::FetchCapabilities() {
         ::DeleteFileW(marker.c_str());
         if (dangerousFailure) {
             MarkCapsUnsafe(item.first, L"crash ou timeout no processo auxiliar de capabilities");
-            KLOG_W(L"DDC/CI: helper de capabilities falhou em '%s'; monitor colocado em quarentena.",
+            KLOG_W(L"DDC/CI: the capabilities helper failed on '%s' - monitor put in quarantine.",
                    item.first.c_str());
             continue;
         }
         if (!gotCaps || caps.empty()) {
-            KLOG_W(L"DDC/CI: '%s' não devolveu uma string de capabilities válida.", item.first.c_str());
+            KLOG_W(L"DDC/CI: '%s' did not return a valid capabilities string.", item.first.c_str());
             continue;
         }
 
@@ -1033,43 +1077,54 @@ std::vector<std::wstring> DdcciBackend::Diagnose() const {
     Guard g(const_cast<Lock&>(lock_));
     for (const auto& kv : monitors_) {
         const Phys& p = kv.second;
-        std::wstring line = p.description + L"  [" + (p.viaVcp ? L"VCP cru" : L"API padrão") + L"]";
-        if (p.mode == DdcMonitorMode::Slow) line += L"  [modo lento: 350 ms]";
-        if (p.hasBrightness) line += Format(L"  brilho %lu..%lu", p.bMin, p.bMax);
-        if (p.hasContrast)   line += Format(L"  contraste %lu..%lu", p.cMin, p.cMax);
-        if (p.hasGain)       line += Format(L"  ganho RGB 0..%lu (R%d G%d B%d)", p.gMax,
+        std::wstring line = p.description + L"  [" + (p.viaVcp ? L"raw VCP" : L"standard API") + L"]";
+        if (p.isClone) line += L"  [mirrored panel, adjusted along with the primary]";
+        if (!p.clones.empty())
+            line += Format(L"  [mirrored on %d further panel(s)]", (int)p.clones.size());
+        if (p.mode == DdcMonitorMode::Slow) line += L"  [slow mode: 350 ms]";
+        if (p.hasBrightness) line += Format(L"  brightness %lu..%lu", p.bMin, p.bMax);
+        if (p.hasContrast)   line += Format(L"  contrast %lu..%lu", p.cMin, p.cMax);
+        if (p.hasGain)       line += Format(L"  RGB gain 0..%lu (R%d G%d B%d)", p.gMax,
                                             p.origGain[0], p.origGain[1], p.origGain[2]);
-        if (p.handleUnavailable) line += L"  [handle indisponível; aguardando redescoberta]";
-        if (p.capsUnsafe) line += L"  [capabilities em quarentena]";
+        if (p.handleUnavailable) line += L"  [handle unavailable - waiting for rediscovery]";
+        if (p.capsUnsafe) line += L"  [capabilities quarantined]";
         out.push_back(line);
         const auto evidence = [&](const wchar_t* name, const FeatureState& s) {
             std::wstring e = L"    " + std::wstring(name) + L": ";
-            e += s.liveProven ? L"comprovado por leitura" : L"não comprovado";
-            if (s.advertised) e += L", anunciado em capabilities";
-            if (s.blocked) e += L", bloqueado temporariamente";
+            e += s.liveProven ? L"proven by reading" : L"not proven";
+            if (s.advertised) e += L", advertised in capabilities";
+            if (s.blocked) e += L", temporarily blocked";
             if (s.lastError)
-                e += Format(L", último erro 0x%08lX (%s), tentativas falhas %d",
+                e += Format(L", last error 0x%08lX (%s), failed attempts %d",
                             s.lastError, ddc::ErrorKindName(s.lastKind), s.failures);
             out.push_back(e);
         };
         if (p.hasBrightness || p.brightnessState.lastError)
-            evidence(Format(L"brilho 0x%02X", (unsigned)p.brightnessCode).c_str(),
+            evidence(Format(L"brightness 0x%02X", (unsigned)p.brightnessCode).c_str(),
                      p.brightnessState);
         if (!p.roundTrip.empty())
-            out.push_back(L"    teste de ida e volta: " + p.roundTrip);
+            out.push_back(L"    round-trip test: " + p.roundTrip);
         if (p.hasContrast || p.contrastState.lastError)
-            evidence(L"contraste 0x12", p.contrastState);
+            evidence(L"contrast 0x12", p.contrastState);
         for (int c = 0; c < 3; ++c)
             if (p.hasGain || p.gainState[c].lastError)
-                evidence(c == 0 ? L"ganho R 0x16" : c == 1 ? L"ganho G 0x18" : L"ganho B 0x1A",
+                evidence(c == 0 ? L"gain R 0x16" : c == 1 ? L"gain G 0x18" : L"gain B 0x1A",
                          p.gainState[c]);
-        if (!p.caps.empty()) out.push_back(L"    capacidades: " + p.caps);
+        if (!p.caps.empty()) out.push_back(L"    capabilities: " + p.caps);
+    }
+    // Detected and mute. Listed rather than omitted, so that "this monitor has
+    // no hardware control" is never confused with "Zdisplay did not find it".
+    for (const auto& kv : unresponsive_) {
+        const MonitorTarget* target = monitors::ByKey(kv.first);
+        out.push_back((target ? target->friendlyName : kv.second) +
+                      L"  [detected, but answered neither brightness nor contrast - "
+                      L"no hardware control]");
     }
     for (const auto& mode : monitorModes_) {
         if (mode.second != DdcMonitorMode::Disabled) continue;
         const MonitorTarget* target = monitors::ByKey(mode.first);
         out.push_back((target ? target->friendlyName : mode.first) +
-                      L"  [DDC/CI excluido pelo usuário antes de qualquer sondagem]");
+                      L"  [DDC/CI excluded by the user before any probing]");
     }
     return out;
 }
@@ -1099,9 +1154,14 @@ void DdcciBackend::Apply(const MonitorTarget& m, const Adjustments& a) {
 
     {
         Guard g(lock_);
-        if (monitors_.find(m.key) == monitors_.end()) return;
+        auto it = monitors_.find(m.key);
+        if (it == monitors_.end()) return;
         w.generation = ++nextGeneration_;
         pending_[m.key] = w;
+        // Mirrored panels display the same image, so they take the same
+        // percentage. Each converts it against its own reported range, and
+        // spends its own write budget, inside the worker.
+        for (const auto& clone : it->second.clones) pending_[clone] = w;
     }
     ::SetEvent(wake_);
 }
@@ -1115,33 +1175,49 @@ void DdcciBackend::Reset(const MonitorTarget& m) {
     // holding it back would leave the monitor stuck on the adjusted value.
     holdUntilMs_ = 0;
 
-    pending_.erase(m.key);
+    auto primary = monitors_.find(m.key);
+    if (primary == monitors_.end()) { pending_.erase(m.key); return; }
 
-    auto it = monitors_.find(m.key);
-    if (it == monitors_.end() || !it->second.everChanged) return;
+    // Mirrored panels each restore to THEIR OWN original values, so unlike an
+    // adjustment the request is built per panel instead of being shared.
+    std::vector<std::wstring> keys;
+    keys.push_back(m.key);
+    for (const auto& clone : primary->second.clones) keys.push_back(clone);
 
-    // Restores the hardware values the monitor had before. Reached only when
-    // something was actually changed, so the EEPROM is not written needlessly.
-    Want w{};
-    w.brightness = it->second.changedBrightness && it->second.origBrightness >= 0
-                 ? (double)it->second.origBrightness : -1.0;
-    w.contrast   = it->second.changedContrast && it->second.origContrast >= 0
-                 ? (double)it->second.origContrast : -1.0;
-    // A factor of 1.0 restores each channel to its original gain.
-    if (it->second.hasGain)
-        for (int i = 0; i < 3; ++i)
-            if (it->second.changedGain[i]) w.gainFactor[i] = 1.0;
-    w.dirty = true;
-    w.restoring = true;
-    w.generation = ++nextGeneration_;
-    if (w.brightness < 0 && w.contrast < 0 && w.gainFactor[0] < 0) return;
+    bool queued = false;
+    for (const auto& key : keys) {
+        // Anything queued for this panel is dropped: it is an adjustment the
+        // restore is about to override anyway.
+        pending_.erase(key);
 
-    pending_[m.key] = w;
+        auto it = monitors_.find(key);
+        if (it == monitors_.end() || !it->second.everChanged) continue;
+
+        // Restores the hardware values the monitor had before. Reached only when
+        // something was actually changed, so the EEPROM is not written needlessly.
+        Want w{};
+        w.brightness = it->second.changedBrightness && it->second.origBrightness >= 0
+                     ? (double)it->second.origBrightness : -1.0;
+        w.contrast   = it->second.changedContrast && it->second.origContrast >= 0
+                     ? (double)it->second.origContrast : -1.0;
+        // A factor of 1.0 restores each channel to its original gain.
+        if (it->second.hasGain)
+            for (int i = 0; i < 3; ++i)
+                if (it->second.changedGain[i]) w.gainFactor[i] = 1.0;
+        if (w.brightness < 0 && w.contrast < 0 && w.gainFactor[0] < 0) continue;
+
+        w.dirty = true;
+        w.restoring = true;
+        w.generation = ++nextGeneration_;
+        pending_[key] = w;
+        queued = true;
+    }
+
     // `everChanged` stays set: clearing it at enqueue time would drop the
     // restore whenever the command never leaves the queue (per-minute ceiling,
     // monitor failure). Re-sending is cheap because lastWritten deduplication
     // discards the repeat before it reaches the EEPROM.
-    ::SetEvent(wake_);
+    if (queued) ::SetEvent(wake_);
 }
 
 void DdcciBackend::ForceRestore() {
@@ -1222,7 +1298,7 @@ void DdcciBackend::WorkerLoop() {
             if (holdUntilMs_ > 0) {
                 if (NowMs() < holdUntilMs_) continue;
                 holdUntilMs_ = 0;
-                KLOG_I(L"DDC/CI: fim da espera da retomada; aplicando o que ficou guardado.");
+                KLOG_I(L"DDC/CI: resume wait over - applying what was held.");
             }
         }
 
@@ -1422,7 +1498,7 @@ void DdcciBackend::WorkerLoop() {
                         it->second.handleUnavailable = true;
                         requestRediscovery = true;
                     }
-                    KLOG_W(L"DDC/CI: '%s', VCP 0x%02X falhou: erro 0x%08lX (%s), %d tentativa(s).",
+                    KLOG_W(L"DDC/CI: '%s', VCP 0x%02X failed: error 0x%08lX (%s), %d attempt(s).",
                            it->second.description.c_str(), (unsigned)code,
                            sent.result.error, ddc::ErrorKindName(sent.result.kind),
                            sent.result.attempts);
@@ -1432,7 +1508,7 @@ void DdcciBackend::WorkerLoop() {
                     ? (int)ddc::ScaleTo(it->second.origBrightness, it->second.bMin, it->second.bMax) : -1;
                 const int originalC = it->second.origContrast >= 0
                     ? (int)ddc::ScaleTo(it->second.origContrast, it->second.cMin, it->second.cMax) : -1;
-                if (needB) update(ddc::VCP_LUMINANCE, wantB, sentB,
+                if (needB) update(it->second.brightnessCode, wantB, sentB,
                                   it->second.brightnessState, &it->second.lastWrittenB,
                                   &it->second.changedBrightness, originalB);
                 if (needC) update(ddc::VCP_CONTRAST, wantC, sentC,
@@ -1563,15 +1639,19 @@ bool DdcciBackend::DrainPending() {
                 job.mon.viaVcp, ddc::kMaxAttempts, (DWORD)commandInterval);
             if (!result.ok && job.want.restoring) {
                 restored = false;
-                KLOG_W(L"DDC/CI: restauro final de '%s', VCP 0x%02X falhou: 0x%08lX (%s).",
+                KLOG_W(L"DDC/CI: final restore of '%s', VCP 0x%02X failed: 0x%08lX (%s).",
                        job.mon.description.c_str(), (unsigned)code, result.error,
                        ddc::ErrorKindName(result.kind));
             }
             return result.ok;
         };
 
+        // The panel's own brightness register, not the standard one: a model
+        // that answers on a private code accepts a write to 0x10 and changes
+        // nothing, so restoring through 0x10 would leave it on the adjusted
+        // value while reporting success.
         if (job.want.brightness >= 0 && job.mon.hasBrightness)
-            send(ddc::VCP_LUMINANCE, ddc::ScaleTo(job.want.brightness, job.mon.bMin, job.mon.bMax));
+            send(job.mon.brightnessCode, ddc::ScaleTo(job.want.brightness, job.mon.bMin, job.mon.bMax));
         if (job.want.contrast >= 0 && job.mon.hasContrast)
             send(ddc::VCP_CONTRAST, ddc::ScaleTo(job.want.contrast, job.mon.cMin, job.mon.cMax));
         if (job.mon.hasGain) {
@@ -1602,8 +1682,8 @@ void DdcciBackend::Shutdown() {
         // and the critical section. Freeing any of them now would be a
         // use-after-free; leaking in an exiting process is safer, and the
         // system reclaims everything anyway.
-        KLOG_W(L"DDC/CI: a thread da fila não encerrou a tempo; "
-               L"deixando os recursos para o sistema recolher.");
+        KLOG_W(L"DDC/CI: the queue thread did not finish in time - "
+               L"leaving the resources for the system to reclaim.");
         thread_ = nullptr;
         wake_ = nullptr;
         owned_.clear();
@@ -1732,14 +1812,14 @@ bool BacklightBackend::Impl::Connect() {
     hr = ::CoCreateInstance(kCLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER,
                             kIID_IWbemLocator, (void**)&loc);
     if (FAILED(hr) || !loc) {
-        KLOG_D(L"WMI: CoCreateInstance falhou (0x%08lX).", (unsigned long)hr);
+        KLOG_D(L"WMI: CoCreateInstance failed (0x%08lX).", (unsigned long)hr);
         return false;
     }
 
     Bstr ns(L"root\\WMI");
     hr = loc->ConnectServer(ns, nullptr, nullptr, nullptr, 0, nullptr, nullptr, &svc);
     if (FAILED(hr) || !svc) {
-        KLOG_D(L"WMI: ConnectServer(root\\WMI) falhou (0x%08lX).", (unsigned long)hr);
+        KLOG_D(L"WMI: ConnectServer(root\\WMI) failed (0x%08lX).", (unsigned long)hr);
         return false;
     }
 
@@ -1747,7 +1827,7 @@ bool BacklightBackend::Impl::Connect() {
     hr = ::CoSetProxyBlanket(svc, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, nullptr,
                              RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
                              nullptr, EOAC_NONE);
-    if (FAILED(hr)) KLOG_D(L"WMI: CoSetProxyBlanket falhou (0x%08lX).", (unsigned long)hr);
+    if (FAILED(hr)) KLOG_D(L"WMI: CoSetProxyBlanket failed (0x%08lX).", (unsigned long)hr);
     return true;
 }
 
@@ -2050,7 +2130,7 @@ void BacklightBackend::Impl::Loop() {
                 // change made with the brightness keys.
                 ::InterlockedExchange(&lastWritten, snapshot.pending);
             } else {
-                KLOG_D(L"WmiSetBrightness(%d) falhou.", snapshot.pending);
+                KLOG_D(L"WmiSetBrightness(%d) failed.", snapshot.pending);
             }
         }
     };
@@ -2066,9 +2146,9 @@ void BacklightBackend::Impl::Loop() {
         if (::InterlockedExchange(&reconnect, 0) == 1) {
             Disconnect();
             if (Connect() && Enumerate()) {
-                KLOG_I(L"Backlight: conexao com o WMI refeita após a suspensao.");
+                KLOG_I(L"Backlight: WMI connection rebuilt after suspend.");
             } else {
-                KLOG_W(L"Backlight: não consegui refazer a conexao com o WMI.");
+                KLOG_W(L"Backlight: could not rebuild the WMI connection.");
             }
         }
 
@@ -2111,11 +2191,11 @@ bool BacklightBackend::Init() {
     impl_ = new Impl();
     impl_->wake = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
     impl_->ready = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!impl_->wake || !impl_->ready) { details_ = L"falha ao criar eventos"; return false; }
+    if (!impl_->wake || !impl_->ready) { details_ = L"failed to create the events"; return false; }
 
     ::InterlockedExchange(&impl_->running, 1);
     impl_->thread = ::CreateThread(nullptr, 0, Impl::Thunk, impl_, 0, nullptr);
-    if (!impl_->thread) { details_ = L"falha ao criar a thread do WMI"; return false; }
+    if (!impl_->thread) { details_ = L"failed to create the WMI thread"; return false; }
     ::SetThreadPriority(impl_->thread, THREAD_PRIORITY_BELOW_NORMAL);
 
     // The first WMI query can take seconds, and this Init runs on the UI thread
@@ -2124,16 +2204,16 @@ bool BacklightBackend::Init() {
     // answers.
     if (::WaitForSingleObject(impl_->ready, 150) != WAIT_OBJECT_0) {
         pendingInit_ = true;
-        details_ = L"aguardando a primeira resposta do WMI";
+        details_ = L"waiting for the first WMI answer";
         return false;
     }
 
     if (!::InterlockedCompareExchange(&impl_->supported, 1, 1)) {
-        details_ = L"nenhuma tela interna com controle de brilho";
+        details_ = L"no internal display with brightness control";
         return false;
     }
 
-    details_ = Format(L"tela interna detectada (brilho atual %ld%%)",
+    details_ = Format(L"internal display detected (current brightness %ld%%)",
                       ::InterlockedCompareExchange(&impl_->current, 0, 0));
     available_ = true;
     return true;
@@ -2145,10 +2225,10 @@ bool BacklightBackend::PollReady() {
 
     pendingInit_ = false;
     if (!::InterlockedCompareExchange(&impl_->supported, 1, 1)) {
-        details_ = L"nenhuma tela interna com controle de brilho";
+        details_ = L"no internal display with brightness control";
         return false;
     }
-    details_ = Format(L"tela interna detectada (brilho atual %ld%%)",
+    details_ = Format(L"internal display detected (current brightness %ld%%)",
                       ::InterlockedCompareExchange(&impl_->current, 0, 0));
     available_ = true;
     return true;
@@ -2273,8 +2353,8 @@ void BacklightBackend::Shutdown() {
         // several seconds when the WMI service is unhealthy. Deleting impl_ here
         // would free the COM connection, the events and the object itself out
         // from under it; leaking in an exiting process is the lesser evil.
-        KLOG_W(L"Backlight: a thread do WMI não encerrou a tempo; "
-               L"deixando os recursos para o sistema recolher.");
+        KLOG_W(L"Backlight: the WMI thread did not finish in time - "
+               L"leaving the resources for the system to reclaim.");
         impl_ = nullptr;
         available_ = false;
         return;
