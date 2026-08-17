@@ -60,6 +60,25 @@ jobs:
           fi
           echo "Tag $tag matches version $declared."
 
+      # The release page carries the changelog entry for the tag. Without it the
+      # page publishes with the assets and no text at all, which is where a user
+      # arrives from the Releases box to find out what changed.
+      #
+      # Run before the build, not after: a tag whose changelog section is
+      # missing has to fail in seconds rather than after a full compile.
+      - name: Prepare the release notes
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          awk -v v="## [$version]" 'index($0,v)==1{f=1;next} f&&/^## \[/{exit} f' \
+            CHANGELOG.md | sed '/./,$!d' > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no '## [$version]' section to publish as the release body."
+            exit 1
+          fi
+          echo "Release body: $(wc -l < release-notes.md) line(s)."
+
       # PATH is reduced to the Windows directories on purpose. The runner ships
       # its own MinGW, and build.bat would use whatever g++ it finds first; the
       # published binary must come from the pinned toolchain instead. build.bat
@@ -134,6 +153,7 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: release-notes.md
           files: |
             dist/*.exe
             dist/*.zip
