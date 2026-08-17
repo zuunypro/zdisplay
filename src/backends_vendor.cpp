@@ -107,7 +107,7 @@ bool NvapiBackend::Init() {
     }
 
     const Display& first = displays_.begin()->second;
-    details_ = Format(L"%d display(s); vibrance %d..%d (neutro %d, atual %d)",
+    details_ = Format(L"%d display(s); vibrance %d..%d (neutral %d, current %d)",
                       (int)displays_.size(), first.minLevel, first.maxLevel,
                       first.defaultLevel, first.origLevel);
     available_ = true;
@@ -181,7 +181,7 @@ void NvapiBackend::Enumerate() {
         d.hasHue = fns_[nv::FN_SetHue] != nullptr;
 
         displays_[gdiName] = d;
-        KLOG_D(L"NVAPI display %s outputId=0x%X vibrance %d..%d (atual %d)",
+        KLOG_D(L"NVAPI display %s outputId=0x%X vibrance %d..%d (current %d)",
                gdiName.c_str(), d.outputId, d.minLevel, d.maxLevel, d.origLevel);
     }
 }
@@ -515,7 +515,7 @@ void AdlBackend::Enumerate() {
                 if (existing.gdiName == entry.gdiName) { duplicate = true; break; }
             if (duplicate) continue;
 
-            KLOG_D(L"ADL %s adapter=%d display=%d sat=%d..%d (neutro %d)",
+            KLOG_D(L"ADL %s adapter=%d display=%d sat=%d..%d (neutral %d)",
                    entry.gdiName.c_str(), entry.adapter, entry.display,
                    entry.satMin, entry.satMax, entry.satDefault);
             displays_.push_back(entry);

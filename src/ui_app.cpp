@@ -153,6 +153,8 @@ int App::Run() {
         // which has to stay keyboard-operable when the screen is unreadable.
         if (confirmWnd_ && ::IsWindow(confirmWnd_) && ::IsDialogMessageW(confirmWnd_, &msg))
             continue;
+        if (colorWnd_ && ::IsWindow(colorWnd_) && ::IsDialogMessageW(colorWnd_, &msg))
+            continue;
         if (settings_ && ::IsWindow(settings_) && ::IsDialogMessageW(settings_, &msg))
             continue;
         ::TranslateMessage(&msg);
@@ -226,6 +228,30 @@ void App::MarkDirty() {
     if (host_ && !exiting_) ::SetTimer(host_, TIMER_AUTOSAVE, 3000, nullptr);
 }
 
+std::wstring App::HotkeyOwner(const std::wstring& combo, int skipField,
+                              const std::wstring& skipProfile) const {
+    if (Trim(combo).empty()) return L"";
+
+    const std::wstring* fields[7] = {
+        &config_.hkBrightnessUp, &config_.hkBrightnessDown,
+        &config_.hkSaturationUp, &config_.hkSaturationDown,
+        &config_.hkToggle, &config_.hkShow, &config_.hkPanic,
+    };
+    for (int i = 0; i < 7; ++i) {
+        if (i == skipField) continue;
+        // Quotes around a translated label, not a sentence: nothing to translate.
+        if (Hotkeys::SameCombination(combo, *fields[i]))
+            return Format(L"'%s'", T(HotkeyFieldLabel(i)));
+    }
+
+    for (const auto& p : config_.profiles) {
+        if (IEquals(p.name, skipProfile)) continue;
+        if (Hotkeys::SameCombination(combo, p.hotkey))
+            return Format(T(L"the profile '%s'"), p.name.c_str());
+    }
+    return L"";
+}
+
 void App::UpdateHotkeyWarning() {
     if (!hotkeyWarning_ || !::IsWindow(hotkeyWarning_)) return;
 
@@ -265,6 +291,10 @@ void App::RefreshUi() {
     if (loadingUi_) return;
     LoadAdjustments();
     if (activeTab_ == 1) LoadVision();
+    // The monitor colour window edits the same profile. It blocks the selection
+    // while it is open, but a schedule rule or a hotkey can still switch profile
+    // underneath it, and its sliders would then be showing the previous one.
+    LoadMonitorColor();
     UpdateStatusBar();
 }
 
@@ -419,7 +449,7 @@ void App::BuildTrayMenu() {
 }
 
 void App::TogglePause(const wchar_t* source) {
-    KLOG_I(L"[pausa] alternada por: %s", source ? source : L"?");
+    KLOG_I(L"Pause toggled by: %s", source ? source : L"?");
     engine_->SetEnabled(!engine_->Enabled());
     if (pauseButton_ && ::IsWindow(pauseButton_))
         ::SetWindowTextW(pauseButton_, engine_->Enabled() ? T(L"Pause") : T(L"Resume"));

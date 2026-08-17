@@ -227,6 +227,9 @@ LRESULT App::OnSettingsMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_DESTROY:
+            // The monitor colour window is owned by this one and edits the
+            // profile selected here, so it never outlives it.
+            CloseMonitorColor();
             for (int t = 0; t < 6; ++t) tabControls_[t].clear();
             if (fontMono_) { ::DeleteObject(fontMono_); fontMono_ = nullptr; }
             settingsBuilt_ = false;
@@ -302,6 +305,10 @@ void App::OnSlider(HWND bar, bool dragging) {
         // The hardware fields only apply when their checkbox is set.
         if (f == F_HWBRIGHT && !Checked(manageHwBright_)) return;
         if (f == F_HWCONTRAST && !Checked(manageHwContrast_)) return;
+        if (f >= F_HWCOLOR_FIRST) {
+            const bool on = Checked(f == F_HWSAT ? colorSatCheck_ : colorGainCheck_);
+            if (!on) return;
+        }
 
         *FieldPtr(*a, f) = v;
         ApplyLive(dragging);
@@ -344,6 +351,16 @@ void App::OnCommand(int id, HWND control, int code) {
             &config_.hkSaturationUp, &config_.hkSaturationDown,
             &config_.hkToggle, &config_.hkShow, &config_.hkPanic,
         };
+        // A combination already answering elsewhere is refused here rather than
+        // by Windows: the registration would fail all the same, and the field
+        // can name which action is holding it.
+        const std::wstring owner = HotkeyOwner(v, i, L"");
+        if (!owner.empty()) {
+            ShowFieldTip(hkEdits_[i], T(L"Already in use"),
+                         Format(T(L"%s already answers to %s."), v.c_str(), owner.c_str()));
+            SetTextOf(hkEdits_[i], *targets[i]);
+            return;
+        }
         *targets[i] = v;
         RegisterHotkeys();
         // The emergency hotkey is never empty; the default goes back in the field.
@@ -424,9 +441,19 @@ void App::OnCommand(int id, HWND control, int code) {
             // Clears the profile values, which is what gets saved.
             Adjustments* a = CurrentAdjustments();
             if (!a) return;
+            // A profile that stops managing a colour register says nothing about
+            // it afterwards, so the panel would keep the last value written.
+            // Which registers were being managed has to be read before the
+            // fields are cleared, and the restore queued after ApplyLive, which
+            // replaces whatever is queued for the panel.
+            const std::wstring key = SelectedMonitorKey();
+            const bool hadGain = a->hwRedGain >= 0 || a->hwGreenGain >= 0 || a->hwBlueGain >= 0;
+            const bool hadSat = a->hwSaturation >= 0;
             *a = Adjustments{};
             LoadAdjustments();
             ApplyLive();
+            if (hadGain) engine_->Ddc()->RestoreColor(key, true);
+            if (hadSat) engine_->Ddc()->RestoreColor(key, false);
             return;
         }
 
@@ -434,6 +461,10 @@ void App::OnCommand(int id, HWND control, int code) {
             // Restores the screen without changing the saved profile.
             engine_->ResetAll();
             UpdateStatusBar();
+            return;
+
+        case IDC_HWCOLOR:
+            ShowMonitorColor();
             return;
 
         // Vision tab
@@ -663,8 +694,10 @@ void App::OnCommand(int id, HWND control, int code) {
         case IDC_SCHED_ADD:
         case IDC_SCHED_UPDATE: {
             ScheduleRule r;
-            r.start = Trim(GetTextOf(schedStartEdit_));
-            r.end = Trim(GetTextOf(schedEndEdit_));
+            // Stored in the wording the program writes, so the list and the file
+            // read the same whichever accepted spelling was typed.
+            r.start = CanonicalRuleTime(GetTextOf(schedStartEdit_));
+            r.end = CanonicalRuleTime(GetTextOf(schedEndEdit_));
             r.profile = ComboSelText(schedProfileCombo_);
             r.enabled = Checked(schedEnabledCheck_);
             // Update rebuilds the rule from the fields, so priority has to be read
@@ -1073,9 +1106,17 @@ void App::CommitProfileEditor() {
     // Hotkey and transition.
     const std::wstring hotkey = Trim(GetTextOf(profileHotkeyEdit_));
     if (hotkey != p->hotkey) {
-        p->hotkey = hotkey;
-        RegisterHotkeys();
-        MarkDirty();
+        const std::wstring owner = HotkeyOwner(hotkey, -1, p->name);
+        if (!owner.empty()) {
+            ShowFieldTip(profileHotkeyEdit_, T(L"Already in use"),
+                         Format(T(L"%s already answers to %s."),
+                                hotkey.c_str(), owner.c_str()));
+            SetTextOf(profileHotkeyEdit_, p->hotkey);
+        } else {
+            p->hotkey = hotkey;
+            RegisterHotkeys();
+            MarkDirty();
+        }
     }
 
     double transition = p->transitionMs;

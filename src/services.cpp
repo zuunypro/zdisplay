@@ -9,6 +9,29 @@ namespace zdisplay {
 
 // Global hotkeys
 
+namespace {
+
+/// Keys that have a name of their own. The first entry of each key is the
+/// spelling written back out; the ones after it are alternatives that are only
+/// read, which is where the Portuguese wording accepted since 1.0 lives.
+struct NamedKey { const wchar_t* name; UINT vk; };
+constexpr NamedKey kNamedKeys[] = {
+    {L"Up", VK_UP}, {L"cima", VK_UP},
+    {L"Down", VK_DOWN}, {L"baixo", VK_DOWN},
+    {L"Left", VK_LEFT}, {L"esquerda", VK_LEFT},
+    {L"Right", VK_RIGHT}, {L"direita", VK_RIGHT},
+    {L"PageUp", VK_PRIOR}, {L"PageDown", VK_NEXT},
+    {L"Home", VK_HOME}, {L"End", VK_END},
+    {L"Insert", VK_INSERT}, {L"Delete", VK_DELETE},
+    {L"Space", VK_SPACE}, {L"espaco", VK_SPACE},
+    {L"Enter", VK_RETURN}, {L"Tab", VK_TAB},
+    {L"Escape", VK_ESCAPE}, {L"esc", VK_ESCAPE},
+    {L"Plus", VK_OEM_PLUS}, {L"mais", VK_OEM_PLUS},
+    {L"Minus", VK_OEM_MINUS}, {L"menos", VK_OEM_MINUS},
+};
+
+}  // namespace
+
 bool Hotkeys::Parse(const std::wstring& combo, UINT* mods, UINT* vk) {
     *mods = 0;
     *vk = 0;
@@ -33,24 +56,9 @@ bool Hotkeys::Parse(const std::wstring& combo, UINT* mods, UINT* vk) {
         if (p == L"win" || p == L"windows")                     { *mods |= MOD_WIN; continue; }
 
         // Named keys, accepted in English and Portuguese.
-        struct Named { const wchar_t* name; UINT vk; };
-        static const Named kNamed[] = {
-            {L"up", VK_UP}, {L"cima", VK_UP},
-            {L"down", VK_DOWN}, {L"baixo", VK_DOWN},
-            {L"left", VK_LEFT}, {L"esquerda", VK_LEFT},
-            {L"right", VK_RIGHT}, {L"direita", VK_RIGHT},
-            {L"pageup", VK_PRIOR}, {L"pagedown", VK_NEXT},
-            {L"home", VK_HOME}, {L"end", VK_END},
-            {L"insert", VK_INSERT}, {L"delete", VK_DELETE},
-            {L"space", VK_SPACE}, {L"espaco", VK_SPACE},
-            {L"enter", VK_RETURN}, {L"tab", VK_TAB},
-            {L"escape", VK_ESCAPE}, {L"esc", VK_ESCAPE},
-            {L"plus", VK_OEM_PLUS}, {L"mais", VK_OEM_PLUS},
-            {L"minus", VK_OEM_MINUS}, {L"menos", VK_OEM_MINUS},
-        };
         bool matched = false;
-        for (const auto& n : kNamed) {
-            if (p == n.name) { *vk = n.vk; matched = true; break; }
+        for (const auto& n : kNamedKeys) {
+            if (p == ToLower(n.name)) { *vk = n.vk; matched = true; break; }
         }
         if (matched) continue;
 
@@ -65,6 +73,44 @@ bool Hotkeys::Parse(const std::wstring& combo, UINT* mods, UINT* vk) {
         return false;  // unknown part
     }
     return *vk != 0;
+}
+
+std::wstring Hotkeys::Format(UINT mods, UINT vk) {
+    // Only what Parse reads back is written: a key this function cannot name is
+    // a key the file could not carry, and the field captures keystrokes, so the
+    // caller needs the empty string as its "ignore this one" answer.
+    std::wstring key;
+    for (const auto& n : kNamedKeys) {
+        if (n.vk == vk) { key = n.name; break; }
+    }
+    if (key.empty() && vk >= VK_F1 && vk <= VK_F24)
+        key = L"F" + std::to_wstring(vk - VK_F1 + 1);
+    if (key.empty() && ((vk >= L'A' && vk <= L'Z') || (vk >= L'0' && vk <= L'9')))
+        key = std::wstring(1, (wchar_t)vk);
+    if (key.empty()) return L"";
+
+    // Windows' own order, which is also the one the shipped combinations are
+    // written in, so a captured hotkey and a hand-written one look the same.
+    std::wstring out;
+    if (mods & MOD_WIN)     out += L"Win+";
+    if (mods & MOD_CONTROL) out += L"Ctrl+";
+    if (mods & MOD_ALT)     out += L"Alt+";
+    if (mods & MOD_SHIFT)   out += L"Shift+";
+    return out + key;
+}
+
+bool Hotkeys::IsUsableCombination(UINT mods, UINT vk) {
+    if (Format(mods, vk).empty()) return false;
+    // A global hotkey with no modifier takes the key away from every other
+    // program, so only the function keys — which few programs claim on their
+    // own — are accepted bare.
+    return mods != 0 || (vk >= VK_F1 && vk <= VK_F24);
+}
+
+bool Hotkeys::SameCombination(const std::wstring& a, const std::wstring& b) {
+    UINT modsA = 0, vkA = 0, modsB = 0, vkB = 0;
+    if (!Parse(a, &modsA, &vkA) || !Parse(b, &modsB, &vkB)) return false;
+    return modsA == modsB && vkA == vkB;
 }
 
 int Hotkeys::Register(const std::wstring& combo) {
@@ -575,7 +621,7 @@ void PipeServer::Loop() {
     PipeSecurity security;
     if (!security.Ok()) {
         KLOG_E(L"Could not build the command channel security descriptor - "
-               L"a linha de comando fica desativada.");
+               L"the command line is disabled.");
         ::InterlockedExchange(&running_, 0);
         return;
     }
@@ -605,7 +651,7 @@ void PipeServer::Loop() {
                 err == ERROR_ALREADY_EXISTS)
                    ? L"The name already belongs to another process - the command line is "
                      L"DISABLED for safety."
-                   : L"A linha de comando fica desativada.");
+                   : L"The command line is disabled.");
         ::InterlockedExchange(&running_, 0);
         return;
     }

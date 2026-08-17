@@ -123,7 +123,7 @@ void Engine::Initialize(HWND hostWindow) {
         }
         const bool ok = e.b->Init();
         KLOG_I(L"Backend '%s': %s — %s", e.b->Name(),
-               ok ? L"disponivel" : L"indisponivel", e.b->Details().c_str());
+               ok ? L"available" : L"unavailable", e.b->Details().c_str());
         all_.push_back(e.b);
     }
 
@@ -299,7 +299,7 @@ void Engine::SetEnabled(bool on) {
     if (enabled_ == on) return;
     enabled_ = on;
     if (on) {
-        KLOG_I(L"Zdisplay reativado.");
+        KLOG_I(L"Zdisplay resumed.");
         BeginTransition(Active());
     } else {
         KLOG_I(L"Zdisplay paused - restoring the display.");
@@ -450,7 +450,7 @@ void Engine::MirrorInternalBrightness() {
 
     if (mirrored > 0)
         KLOG_I(L"Internal panel brightness changed to %d%% by the keys - mirrored "
-               L"em %d monitor(es) externo(s).", level, mirrored);
+               L"to %d external monitor(s).", level, mirrored);
 }
 
 void Engine::SettleInteractive() {

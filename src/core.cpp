@@ -42,7 +42,8 @@ bool Adjustments::MatrixNeutral() const {
 
 bool Adjustments::Neutral() const {
     return GammaNeutral() && MatrixNeutral() && Near(vibrance, 0) &&
-           Near(dim, 0) && hwBrightness < 0 && hwContrast < 0;
+           Near(dim, 0) && hwBrightness < 0 && hwContrast < 0 &&
+           hwRedGain < 0 && hwGreenGain < 0 && hwBlueGain < 0 && hwSaturation < 0;
 }
 
 void Adjustments::Sanitize() {
@@ -69,8 +70,15 @@ void Adjustments::Sanitize() {
     fix(dim,           0,   0,   90);
 
     // -1 means "not managed"; any other value is clamped to 0..100.
-    if (hwBrightness >= 0) fix(hwBrightness, -1, 0, 100); else hwBrightness = -1;
-    if (hwContrast   >= 0) fix(hwContrast,   -1, 0, 100); else hwContrast = -1;
+    const auto fixHw = [&fix](double& v) {
+        if (v >= 0) fix(v, -1, 0, 100); else v = -1;
+    };
+    fixHw(hwBrightness);
+    fixHw(hwContrast);
+    fixHw(hwRedGain);
+    fixHw(hwGreenGain);
+    fixHw(hwBlueGain);
+    fixHw(hwSaturation);
 
     // Absolute light floor. Relaxes, in order, whatever darkens most and costs
     // least in user intent: the overlay veil, hardware brightness, software
@@ -173,10 +181,16 @@ Adjustments Adjustments::Blend(const Adjustments& a, const Adjustments& b, doubl
     r.vibrance    = Lerp(a.vibrance,    b.vibrance,    t);
     r.hue         = Lerp(a.hue,         b.hue,         t);
     r.dim         = Lerp(a.dim,         b.dim,         t);
-    // Non-interpolable values snap straight to the destination.
+    // Non-interpolable values snap straight to the destination. The hardware
+    // ones are commands to the panel, and each step of an animation would be
+    // another write to its EEPROM.
     r.invert       = b.invert;
     r.hwBrightness = b.hwBrightness;
     r.hwContrast   = b.hwContrast;
+    r.hwRedGain    = b.hwRedGain;
+    r.hwGreenGain  = b.hwGreenGain;
+    r.hwBlueGain   = b.hwBlueGain;
+    r.hwSaturation = b.hwSaturation;
     return r;
 }
 
@@ -355,7 +369,23 @@ bool ParseSolarRule(const std::wstring& text, std::wstring* word, int* offset) {
     return true;
 }
 
+/// True for the sunrise spellings, in either of the accepted languages.
+bool IsSunriseWord(const std::wstring& word) {
+    return IEquals(word, L"nascer") || IEquals(word, L"sunrise");
+}
+
 }  // namespace
+
+std::wstring CanonicalRuleTime(const std::wstring& text) {
+    std::wstring word;
+    int offset = 0;
+    if (!ParseSolarRule(text, &word, &offset)) return Trim(text);
+
+    std::wstring out = IsSunriseWord(word) ? L"sunrise" : L"sunset";
+    if (offset > 0) out += L"+" + std::to_wstring(offset);
+    else if (offset < 0) out += L"-" + std::to_wstring(-offset);
+    return out;
+}
 
 bool IsValidRuleTime(const std::wstring& text) {
     const std::wstring s = Trim(text);
@@ -375,12 +405,12 @@ int ResolveRuleTime(const std::wstring& text, const SYSTEMTIME& now,
     int hm = 0;
     if (ParseHm(s, &hm)) return hm;
 
-    // Solar time, with optional offset: "por", "nascer+30", "por-45".
+    // Solar time, with optional offset: "sunset", "sunrise+30", "sunset-45".
     std::wstring word;
     int offset = 0;
     if (!ParseSolarRule(s, &word, &offset)) return -1;
 
-    const bool sunrise = IEquals(word, L"nascer") || IEquals(word, L"sunrise");
+    const bool sunrise = IsSunriseWord(word);
     if (!solar.valid) return -1;
 
     int rise = 0, set = 0;
@@ -407,8 +437,11 @@ void Vision::Sanitize() {
     nightBrightness  = Clamp(nightBrightness, 20.0, 100.0);
     transitionMinutes = Clamp(transitionMinutes, 0, 240);
     breakMinutes      = Clamp(breakMinutes, 0, 240);
-    if (!IsValidRuleTime(dayStart))   dayStart = L"nascer";
-    if (!IsValidRuleTime(nightStart)) nightStart = L"por";
+    // Canonical wording, not merely a valid one: the two fields are shown as
+    // they are stored, so a solar time left in Portuguese by an older
+    // configuration would keep appearing that way in an English window.
+    dayStart   = IsValidRuleTime(dayStart)   ? CanonicalRuleTime(dayStart)   : L"sunrise";
+    nightStart = IsValidRuleTime(nightStart) ? CanonicalRuleTime(nightStart) : L"sunset";
 }
 
 namespace {
@@ -745,6 +778,10 @@ void WriteAdjustments(std::wostringstream& out, const Adjustments& a) {
     out << L"escurecer="    << FormatDouble(a.dim)         << L"\r\n";
     out << L"brilhoHw="     << FormatDouble(a.hwBrightness) << L"\r\n";
     out << L"contrasteHw="  << FormatDouble(a.hwContrast)  << L"\r\n";
+    out << L"ganhoRHw="     << FormatDouble(a.hwRedGain)   << L"\r\n";
+    out << L"ganhoGHw="     << FormatDouble(a.hwGreenGain) << L"\r\n";
+    out << L"ganhoBHw="     << FormatDouble(a.hwBlueGain)  << L"\r\n";
+    out << L"saturacaoHw="  << FormatDouble(a.hwSaturation) << L"\r\n";
 }
 
 void ReadAdjustments(const IniSection& s, Adjustments* a) {
@@ -765,6 +802,10 @@ void ReadAdjustments(const IniSection& s, Adjustments* a) {
     a->dim          = s.Num(L"escurecer",   a->dim);
     a->hwBrightness = s.Num(L"brilhoHw",    a->hwBrightness);
     a->hwContrast   = s.Num(L"contrasteHw", a->hwContrast);
+    a->hwRedGain    = s.Num(L"ganhoRHw",    a->hwRedGain);
+    a->hwGreenGain  = s.Num(L"ganhoGHw",    a->hwGreenGain);
+    a->hwBlueGain   = s.Num(L"ganhoBHw",    a->hwBlueGain);
+    a->hwSaturation = s.Num(L"saturacaoHw", a->hwSaturation);
 }
 
 bool ReadWholeFile(const std::wstring& path, std::string* out) {
@@ -978,8 +1019,8 @@ bool ParseConfigText(const std::wstring& text, Config* cfg) {
         else if (lower.rfind(L"horario", 0) == 0) {
             ScheduleRule r;
             r.enabled  = s.Bool(L"ativa", true);
-            r.start    = s.Str(L"inicio", r.start);
-            r.end      = s.Str(L"fim", r.end);
+            r.start    = CanonicalRuleTime(s.Str(L"inicio", r.start));
+            r.end      = CanonicalRuleTime(s.Str(L"fim", r.end));
             r.profile  = s.Str(L"perfil");
             r.priority = s.Int(L"prioridade", 0);
             if (!r.profile.empty()) cfg->scheduleRules.push_back(r);
@@ -1075,8 +1116,9 @@ bool SaveConfig(const Config& cfg) {
     std::wostringstream out;
     out << L"; Zdisplay configuration - it can be edited by hand.\r\n";
     out << L"; Neutral values: brightness/contrast/saturation 100, gamma 1, temperature 6500,\r\n";
-    out << L"; vibrance 0, hue 0, shadows 0, clarity 0. Use -1 in\r\n";
-    out << L"; brilhoHw/contrasteHw to leave them unmanaged.\r\n\r\n";
+    out << L"; vibrance 0, hue 0, shadows 0, clarity 0. Use -1 in the monitor\r\n";
+    out << L"; hardware values (brilhoHw, contrasteHw, ganhoRHw, ganhoGHw,\r\n";
+    out << L"; ganhoBHw, saturacaoHw) to leave the panel's own settings alone.\r\n\r\n";
 
     out << L"[geral]\r\n";
     out << L"perfilPadrao="          << cfg.defaultProfile << L"\r\n";
@@ -1268,7 +1310,7 @@ const uint32_t kBaselineMagic = 0x4C42524B;  // "KRBL"
 /// v2 added the vendor block (vendor-panel vibrance/hue); v3 added the SDR white
 /// level of HDR displays. Older files still load: the newer blocks are simply
 /// absent from them.
-const uint32_t kBaselineVersion = 3;
+const uint32_t kBaselineVersion = 4;
 
 void PushBytes(std::string& out, const void* data, size_t n) {
     const char* p = static_cast<const char*>(data);
@@ -1336,6 +1378,21 @@ bool SaveBaseline(const Baseline& b) {
         PushBytes(out, key.data(), key.size());
         const int32_t nits = kv.second;
         PushBytes(out, &nits, 4);
+    }
+
+    const uint32_t colorCount = (uint32_t)b.panelColor.size();
+    PushBytes(out, &colorCount, 4);
+    for (const auto& kv : b.panelColor) {
+        const std::string key = WideToUtf8(kv.first);
+        const uint32_t keyLen = (uint32_t)key.size();
+        PushBytes(out, &keyLen, 4);
+        PushBytes(out, key.data(), key.size());
+        for (int c = 0; c < 3; ++c) {
+            const int32_t g = kv.second.gain[c];
+            PushBytes(out, &g, 4);
+        }
+        const int32_t sat = kv.second.saturation;
+        PushBytes(out, &sat, 4);
     }
 
     EnsureDir(ConfigDir());
@@ -1430,6 +1487,28 @@ bool ParseBaseline(const std::string& raw, Baseline* b) {
             int32_t nits = 0;
             if (!PullBytes(raw, &pos, &nits, 4)) return false;
             if (nits > 0) tmp.hdrWhite[Utf8ToWide(key)] = (int)nits;
+        }
+    }
+
+    // The panel's own color registers: present only from v4 on.
+    if (version >= 4) {
+        uint32_t colorCount = 0;
+        if (!PullBytes(raw, &pos, &colorCount, 4) || colorCount > 64) return false;
+        for (uint32_t i = 0; i < colorCount; ++i) {
+            uint32_t keyLen = 0;
+            if (!PullBytes(raw, &pos, &keyLen, 4) || keyLen > 4096) return false;
+            std::string key(keyLen, '\0');
+            if (keyLen && !PullBytes(raw, &pos, &key[0], keyLen)) return false;
+            Baseline::PanelColor color;
+            for (int c = 0; c < 3; ++c) {
+                int32_t g = -1;
+                if (!PullBytes(raw, &pos, &g, 4)) return false;
+                color.gain[c] = (int)g;
+            }
+            int32_t sat = -1;
+            if (!PullBytes(raw, &pos, &sat, 4)) return false;
+            color.saturation = (int)sat;
+            tmp.panelColor[Utf8ToWide(key)] = color;
         }
     }
 
@@ -2036,11 +2115,13 @@ std::wstring VcpValueName(unsigned char code, unsigned char value) {
 }
 
 const wchar_t* PerformanceModeName(PerformanceMode m) {
+    // Written in English, as every other word this program puts in the
+    // configuration file. The Portuguese spellings 1.1 wrote are still read.
     switch (m) {
-        case PerformanceMode::Quality: return L"qualidade";
-        case PerformanceMode::Light:   return L"leve";
+        case PerformanceMode::Quality: return L"quality";
+        case PerformanceMode::Light:   return L"light";
         case PerformanceMode::Balanced:
-        default:                       return L"equilibrado";
+        default:                       return L"balanced";
     }
 }
 
@@ -2195,9 +2276,11 @@ std::wstring FormatMonitorQuirk(const MonitorQuirk& q) {
         if (!out.empty()) out += L",";
         out += s;
     };
-    if (q.block) add(L"bloquear");
-    if (q.unsafeCaps) add(L"sem-capacidades");
-    if (q.brightnessVcp > 0) add(Format(L"brilho-vcp:%02X", q.brightnessVcp));
+    // Written in English, read in either language: the file is meant to be
+    // edited by hand, so what the program writes is what its documentation says.
+    if (q.block) add(L"block");
+    if (q.unsafeCaps) add(L"no-caps");
+    if (q.brightnessVcp > 0) add(Format(L"brightness-vcp:%02X", q.brightnessVcp));
     return out;
 }
 
@@ -2744,14 +2827,14 @@ bool Refresh() {
     g_list = found;
 
     if (changed) {
-        KLOG_I(L"Monitores detectados: %d", (int)g_list.size());
+        KLOG_I(L"Monitors detected: %d", (int)g_list.size());
         for (const auto& m : g_list) {
             KLOG_I(L"  %s  [%s]  %ldx%ld%s%s", m.friendlyName.c_str(), m.deviceName.c_str(),
                    m.bounds.right - m.bounds.left, m.bounds.bottom - m.bounds.top,
-                   m.isPrimary ? L"  (principal)" : L"",
-                   m.isInternal ? L"  (embutido)" : L"");
+                   m.isPrimary ? L"  (primary)" : L"",
+                   m.isInternal ? L"  (built-in)" : L"");
             if (!m.adapterName.empty())
-                KLOG_I(L"      placa: %s%s", m.adapterName.c_str(),
+                KLOG_I(L"      adapter: %s%s", m.adapterName.c_str(),
                        GpuVendorName(m.gpuVendorId)[0]
                            ? Format(L"  [%s]", GpuVendorName(m.gpuVendorId)).c_str() : L"");
             if (m.edid.valid)

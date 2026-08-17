@@ -32,7 +32,7 @@ bool GammaBackend::Init() {
         return false;
     }
 
-    details_ = RangeUnlocked() ? L"faixa ampliada liberada no registro"
+    details_ = RangeUnlocked() ? L"full range unlocked in the registry"
                                : L"standard Windows range (limited)";
     available_ = true;
     return true;
@@ -129,7 +129,7 @@ void GammaBackend::WriteAdaptive(const MonitorTarget& m, const WORD target[768],
 
         if (!warned_) {
             warned_ = true;
-            KLOG_W(L"O Windows limitou a rampa de gamma a %.0f%% do efeito pedido. "
+            KLOG_W(L"Windows limited the gamma ramp to %.0f%% of the requested effect. "
                    L"Use 'Unlock the full gamma range' on the System tab for the full effect.",
                    factor * 100.0);
         }
@@ -208,8 +208,8 @@ void GammaBackend::CaptureBaseline(const MonitorTarget& m) {
     baseline_[m.key] = std::move(ramp);
     baselineCustom_[m.key] = custom;
 
-    KLOG_I(L"Estado original de '%s' guardado (%s).", m.friendlyName.c_str(),
-           custom ? L"has its own calibration - it will be preserved" : L"rampa linear");
+    KLOG_I(L"Original state of '%s' saved (%s).", m.friendlyName.c_str(),
+           custom ? L"has its own calibration - it will be preserved" : L"linear ramp");
 }
 
 bool GammaBackend::HasCustomBaseline(const std::wstring& monitorKey) const {
@@ -489,7 +489,7 @@ void HdrBackend::Apply(const MonitorTarget& m, const Adjustments& a) {
 
     if (st.lastWritten == clamped) return;
     if (!hdr::WriteWhiteNits(m, clamped)) {
-        KLOG_D(L"HDR: o Windows recusou %d nits em %s.", clamped, m.friendlyName.c_str());
+        KLOG_D(L"HDR: Windows refused %d nits on %s.", clamped, m.friendlyName.c_str());
         return;
     }
     st.lastWritten = clamped;
@@ -626,7 +626,7 @@ void MagnifyBackend::SetMatrix(const Mat5& m) {
     if (hasLast_ && last_.NearlyEquals(m)) return;
     const MagColorEffect e = ToMagEffect(m);
     if (pMagSet_(&e)) { last_ = m; hasLast_ = true; }
-    else KLOG_D(L"MagSetFullscreenColorEffect recusou a matriz.");
+    else KLOG_D(L"MagSetFullscreenColorEffect refused the matrix.");
 }
 
 void MagnifyBackend::Apply(const MonitorTarget&, const Adjustments& a) {

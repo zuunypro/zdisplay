@@ -172,6 +172,44 @@ const Entry kTable[] = {
       L"Controlar o contraste físico — indisponível" },
     { L"Physical contrast",                         L"Contraste físico" },
     { L"DDC mode (needs a restart)",                L"Modo DDC (requer reinício)" },
+
+    // Monitor colour window.
+    { L"Monitor colour (RGB gain)...",              L"Cor do monitor (ganho RGB)..." },
+    { L"Monitor colour",                            L"Cor do monitor" },
+    { L"A monitor applies these only while its colour preset is the user one. "
+      L"Set that preset first, on the panel or in Monitor commands.",
+      L"O monitor só aplica isto enquanto a predefinição de cor dele for a do "
+      L"usuário. Escolha essa predefinição antes, no painel ou em Comandos do "
+      L"monitor." },
+    { L"The monitor is on a user colour preset, so it keeps what is "
+      L"written here.",
+      L"O monitor está numa predefinição de cor do usuário, então ele mantém o "
+      L"que for escrito aqui." },
+    { L"The monitor is on the '%s' preset and will hold its own values: switch "
+      L"it to a user preset, under Monitor commands, before these sliders have "
+      L"any effect.",
+      L"O monitor está na predefinição '%s' e vai manter os valores dele: "
+      L"mude para uma predefinição de usuário, em Comandos do monitor, antes "
+      L"que estes controles tenham efeito." },
+    { L"Control the monitor's RGB gain",            L"Controlar o ganho RGB do monitor" },
+    { L"Control the monitor's saturation",          L"Controlar a saturação do monitor" },
+    { L"Profile '%s' on %s.",                       L"Perfil '%s' em %s." },
+    { L"every monitor",                             L"todos os monitores" },
+    { L"  Neither RGB gain nor saturation is available here.",
+      L"  Aqui não há ganho RGB nem saturação disponíveis." },
+    { L"  Only saturation is available here.",
+      L"  Aqui só há saturação disponível." },
+    { L"  Only RGB gain is available here.",
+      L"  Aqui só há ganho RGB disponível." },
+    { L"Close",                                     L"Fechar" },
+    { L"The panel's own colour registers, over the video cable: they cost no "
+      L"tonal range and survive anything that resets the gamma ramp. Only on a "
+      L"monitor that answers DDC/CI, and almost always only in its user colour "
+      L"preset.",
+      L"Os registradores de cor do próprio painel, pelo cabo de vídeo: não "
+      L"custam faixa tonal e sobrevivem a qualquer coisa que zere a rampa de "
+      L"gamma. Só em monitor que responde a DDC/CI e quase sempre só na "
+      L"predefinição de cor do usuário." },
     { L"Automatic (recommended)",                   L"Automático (recomendado)" },
     { L"Slow DDC (dock/adapter)",                   L"DDC lento (dock/adaptador)" },
     { L"Never use DDC on this monitor",             L"Nunca usar DDC neste monitor" },
@@ -234,7 +272,7 @@ const Entry kTable[] = {
     { L"Accepts a clock time (22:00) or the sun: 'sunset', 'sunrise', "
       L"'sunset-30'. With no location Zdisplay uses 20:00 and 07:00; fill in "
       L"Latitude and Longitude on the Automation tab and it follows the sun.",
-      L"Aceita relógio (22:00) ou o sol: 'por', 'nascer', 'por-30'. Sem "
+      L"Aceita relógio (22:00) ou o sol: 'sunset', 'sunrise', 'sunset-30'. Sem "
       L"localização, o Zdisplay usa 20:00 e 07:00; ao preencher Latitude e "
       L"Longitude na aba Automação, passa a seguir o sol." },
     { L"Eye break",                                 L"Pausa para os olhos" },
@@ -316,8 +354,8 @@ const Entry kTable[] = {
       L"'sunset', 'sunrise', and with an offset such as 'sunset-30' or "
       L"'sunrise+45'. Sunset moves by more than two hours across the year, "
       L"so a fixed range is wrong for half the months.",
-      L"Início e Fim aceitam relógio (22:00) ou o próprio sol: 'por', "
-      L"'nascer', e com deslocamento como 'por-30' ou 'nascer+45'. O "
+      L"Início e Fim aceitam relógio (22:00) ou o próprio sol: 'sunset', "
+      L"'sunrise', e com deslocamento como 'sunset-30' ou 'sunrise+45'. O "
       L"horário do pôr do sol anda mais de duas horas ao longo do ano, "
       L"então uma faixa fixa fica errada em metade dos meses." },
     { L"Location",                                  L"Localização" },
@@ -366,9 +404,9 @@ const Entry kTable[] = {
     // System tab: global hotkeys.
     { L"Global hotkeys",                            L"Atalhos globais" },
     { L"They work from anywhere in Windows, even with this window closed. "
-      L"Format: Ctrl+Alt+K, Ctrl+Shift+F5, Win+Alt+Up. Empty turns one off.",
+      L"Click a field and press the combination you want.",
       L"Valem de qualquer lugar do Windows, mesmo com esta janela fechada. "
-      L"Formato: Ctrl+Alt+K, Ctrl+Shift+F5, Win+Alt+Up. Vazio desliga." },
+      L"Clique num campo e pressione a combinação que quiser." },
     { L"Brightness up",                             L"Aumentar brilho" },
     { L"Brightness down",                           L"Diminuir brilho" },
     { L"Saturation up",                             L"Aumentar saturação" },
@@ -377,10 +415,26 @@ const Entry kTable[] = {
     { L"Open this window",                          L"Abrir esta janela" },
     { L"EMERGENCY: give the screen back",           L"EMERGÊNCIA: devolver tela" },
     { L"Hotkey step",                               L"Passo dos atalhos" },
-    { L"Format: Ctrl+Alt+K, Ctrl+Shift+F5, Win+Alt+Up. Leave a field empty "
-      L"to turn that hotkey off.",
-      L"Formato: Ctrl+Alt+K, Ctrl+Shift+F5, Win+Alt+Up. Deixe vazio para "
-      L"desativar um atalho." },
+    { L"Key not accepted",                          L"Tecla não aceita" },
+    { L"This key cannot be stored as a hotkey. Use a letter, a number, a "
+      L"function key or one of the navigation keys.",
+      L"Esta tecla não pode ser guardada como atalho. Use uma letra, um "
+      L"número, uma tecla de função ou uma das teclas de navegação." },
+    { L"Add a modifier",                            L"Falta um modificador" },
+    { L"A key on its own would be taken from every other program. Hold Ctrl, "
+      L"Alt, Shift or Win — or use a function key, which works alone.",
+      L"Uma tecla sozinha seria tirada de todos os outros programas. Segure "
+      L"Ctrl, Alt, Shift ou Win — ou use uma tecla de função, que vale "
+      L"sozinha." },
+    { L"Already in use",                            L"Já está em uso" },
+    { L"%s already answers to %s.",                 L"%s já responde por %s." },
+    { L"the profile '%s'",                          L"o perfil '%s'" },
+    { L"The field records what you press: Ctrl, Alt, Shift or Win plus one "
+      L"key — a function key on its own also works. Backspace or Delete "
+      L"turns that hotkey off.",
+      L"O campo grava o que você pressiona: Ctrl, Alt, Shift ou Win mais uma "
+      L"tecla — tecla de função sozinha também vale. Backspace ou Delete "
+      L"desliga aquele atalho." },
     { L"Not registered (another program already uses the combination): %s. "
       L"Choose a different combination for those.",
       L"Não registrados (outro programa já usa a combinação): %s. Escolha "
@@ -569,11 +623,11 @@ const Entry kTable[] = {
       L"que a cor dela." },
     { L"A clock time (22:00) or the sun: 'sunset', 'sunset-30', 'sunset+45'. "
       L"Without latitude and longitude on the Automation tab, 20:00 applies.",
-      L"Relógio (22:00) ou o sol: 'por', 'por-30', 'por+45'. Sem latitude "
-      L"e longitude preenchidas na aba Automação, vale 20:00." },
+      L"Relógio (22:00) ou o sol: 'sunset', 'sunset-30', 'sunset+45'. Sem "
+      L"latitude e longitude preenchidas na aba Automação, vale 20:00." },
     { L"A clock time (07:00) or the sun: 'sunrise', 'sunrise+45'. With no "
       L"location, 07:00 applies.",
-      L"Relógio (07:00) ou o sol: 'nascer', 'nascer+45'. Sem localização, "
+      L"Relógio (07:00) ou o sol: 'sunrise', 'sunrise+45'. Sem localização, "
       L"vale 07:00." },
     { L"How many minutes the change takes, half before and half after the "
       L"time. An hour is enough for it to pass unnoticed.",
@@ -606,9 +660,11 @@ const Entry kTable[] = {
       L"Renomear atualiza sozinho as regras de aplicativo e de horário que "
       L"apontam para este perfil." },
     { L"The combination that activates this profile from anywhere in "
-      L"Windows. For example Ctrl+Alt+1. Empty turns it off.",
+      L"Windows. Click here and press it — Ctrl+Alt+1, for instance. "
+      L"Backspace turns it off.",
       L"Combinação que ativa este perfil de qualquer lugar do Windows. "
-      L"Ex.: Ctrl+Alt+1. Vazio desliga." },
+      L"Clique aqui e pressione — Ctrl+Alt+1, por exemplo. Backspace "
+      L"desliga." },
     { L"How long the display takes to reach this profile. 0 switches at "
       L"once; a few hundred ms hide the jump.",
       L"Quanto tempo a tela leva para chegar neste perfil. 0 troca de "
@@ -666,8 +722,8 @@ const Entry kTable[] = {
     { L"A clock time (22:00) or the sun: 'sunset', 'sunrise', 'sunset-30', "
       L"'sunrise+45'. Sunset moves by more than two hours across the year, so "
       L"a fixed range is wrong for half the months.",
-      L"Relógio (22:00) ou o sol: 'por', 'nascer', 'por-30', 'nascer+45'. "
-      L"O pôr do sol anda mais de duas horas ao longo do ano, então faixa "
+      L"Relógio (22:00) ou o sol: 'sunset', 'sunrise', 'sunset-30', "
+      L"'sunrise+45'. O pôr do sol anda mais de duas horas ao longo do ano, então faixa "
       L"fixa fica errada em metade dos meses." },
     { L"Same format as Start. A range may cross midnight.",
       L"Mesmo formato do Início. A faixa pode cruzar a meia-noite." },
@@ -685,7 +741,7 @@ const Entry kTable[] = {
       L"on the clock of a place you are not in would be worse than not "
       L"switching at all.",
       L"Em graus decimais, positivo ao norte. São Paulo: -23,55. Sem "
-      L"preencher, as regras com 'nascer' e 'por' não entram — trocar o "
+      L"preencher, as regras com 'sunrise' e 'sunset' não entram — trocar o "
       L"perfil no horário de um lugar onde você não está seria pior que "
       L"não trocar." },
     { L"In decimal degrees, positive to the east. Berlin: 13.40.",
@@ -783,7 +839,7 @@ const Entry kTable[] = {
       L"monitores externos por DDC/CI. Perfil que já gerencia o brilho "
       L"físico continua mandando, para os dois não brigarem." },
     { L"Returns the display to its original state and pauses Zdisplay, from "
-      L"anywhere in Windows. Clear this field and the default comes back on "
+      L"anywhere in Windows. Clearing this field brings the default back on "
       L"its own — it is the emergency exit.",
       L"Devolve a tela ao estado original e pausa o Zdisplay, de qualquer "
       L"lugar do Windows. Se apagar este campo, o padrão volta sozinho — "
@@ -867,8 +923,8 @@ const Entry kTable[] = {
       L"Ainda não detectei nenhum programa em foco." },
     { L"Use a clock time (21:30) or the sun itself: 'sunset', 'sunrise', "
       L"'sunset-30', 'sunrise+45'.",
-      L"Use o relógio (21:30) ou o próprio sol: 'por', 'nascer', 'por-30', "
-      L"'nascer+45'." },
+      L"Use o relógio (21:30) ou o próprio sol: 'sunset', 'sunrise', "
+      L"'sunset-30', 'sunrise+45'." },
 
     // Dialogs: eye break.
     { L"Notifications are turned off in Windows, so this reminder would never "

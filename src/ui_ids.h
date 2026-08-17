@@ -30,9 +30,15 @@ enum : int {
     IDC_RESET_ALL,
     IDC_RESTORE_SCREEN,
     IDC_COMPARE,
+    IDC_HWCOLOR,
 
     // slider reset buttons (one per field)
     IDC_SLIDER_RESET_BASE = 1100,
+
+    // Monitor colour window
+    IDC_HWCOLOR_GAIN = 1150,
+    IDC_HWCOLOR_SAT,
+    IDC_HWCOLOR_CLOSE,
 
     // Profiles tab
     IDC_PROFILE_LIST = 1200,

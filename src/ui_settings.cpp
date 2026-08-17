@@ -18,6 +18,15 @@ void SetText(HWND h, const std::wstring& s) {
     if (h) ::SetWindowTextW(h, s.c_str());
 }
 
+std::wstring TextOf(HWND h) {
+    if (!h) return L"";
+    const int n = ::GetWindowTextLengthW(h);
+    if (n <= 0) return L"";
+    std::wstring s((size_t)n, L'\0');
+    ::GetWindowTextW(h, &s[0], n + 1);
+    return s;
+}
+
 void SetChecked(HWND h, bool on) {
     if (h) ::SendMessageW(h, BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0);
 }
@@ -84,6 +93,10 @@ double* FieldPtr(Adjustments& a, AdjField f) {
         case F_BLUEBLOCK:   return &a.blueBlock;
         case F_HWBRIGHT:    return &a.hwBrightness;
         case F_HWCONTRAST:  return &a.hwContrast;
+        case F_HWRGAIN:     return &a.hwRedGain;
+        case F_HWGGAIN:     return &a.hwGreenGain;
+        case F_HWBGAIN:     return &a.hwBlueGain;
+        case F_HWSAT:       return &a.hwSaturation;
         default:            return &a.brightness;
     }
 }
@@ -181,6 +194,28 @@ void SliderRow::Show(bool on) {
 }
 
 // Window creation
+
+const wchar_t* HotkeyFieldLabel(int index) {
+    switch (index) {
+        case 0:  return L"Brightness up";
+        case 1:  return L"Brightness down";
+        case 2:  return L"Saturation up";
+        case 3:  return L"Saturation down";
+        case 4:  return L"Pause / resume";
+        case 5:  return L"Open this window";
+        default: return L"EMERGENCY: give the screen back";
+    }
+}
+
+void ShowFieldTip(HWND edit, const wchar_t* title, const std::wstring& text) {
+    if (!edit) return;
+    EDITBALLOONTIP tip{};
+    tip.cbStruct = sizeof(tip);
+    tip.pszTitle = title;
+    tip.pszText = text.c_str();
+    tip.ttiIcon = TTI_WARNING;
+    ::SendMessageW(edit, EM_SHOWBALLOONTIP, 0, (LPARAM)&tip);
+}
 
 void App::ShowSettings() {
     if (settings_ && ::IsWindow(settings_)) {
@@ -371,6 +406,152 @@ struct Maker {
         return c;
     }
 };
+
+// Hotkey fields: the combination is recorded from the keyboard instead of being
+// spelled out by hand.
+//
+// The value committed before the field took focus, so a press of Ctrl alone —
+// which shows "Ctrl+" while the user reaches for the second key — can put the
+// field back the way it was when the key is released without a combination.
+// One entry is enough: only one control holds focus at a time.
+std::wstring g_hotkeyCommitted;
+HWND         g_hotkeyField = nullptr;
+
+/// Modifiers held right now, in the MOD_* form RegisterHotKey uses.
+UINT HeldModifiers() {
+    UINT mods = 0;
+    if (::GetKeyState(VK_CONTROL) < 0) mods |= MOD_CONTROL;
+    if (::GetKeyState(VK_MENU) < 0)    mods |= MOD_ALT;
+    if (::GetKeyState(VK_SHIFT) < 0)   mods |= MOD_SHIFT;
+    if (::GetKeyState(VK_LWIN) < 0 || ::GetKeyState(VK_RWIN) < 0) mods |= MOD_WIN;
+    return mods;
+}
+
+/// Writes the field and hands the value to the window that owns it.
+///
+/// EN_KILLFOCUS is what the settings window already listens for on these
+/// fields, and a captured combination is final the moment it is complete, so
+/// the capture reports itself the same way instead of adding a second path.
+void CommitHotkeyField(HWND field, const std::wstring& text) {
+    ::SetWindowTextW(field, text.c_str());
+    HWND parent = ::GetParent(field);
+    const int id = ::GetDlgCtrlID(field);
+    if (parent) ::SendMessageW(parent, WM_COMMAND,
+                               MAKEWPARAM((WORD)id, (WORD)EN_KILLFOCUS), (LPARAM)field);
+    // Read back rather than assumed: the emergency hotkey refuses to stay
+    // empty, and its field comes back holding the default. Recording what was
+    // asked for would leave the release of the last modifier restoring a value
+    // that is not the registered one.
+    g_hotkeyCommitted = TextOf(field);
+}
+
+LRESULT CALLBACK HotkeyEditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp,
+                                UINT_PTR id, DWORD_PTR) {
+    switch (msg) {
+        case WM_GETDLGCODE:
+            // Every key, so that Enter, the arrows and the function keys reach
+            // the field instead of being taken by the dialog navigation. Tab is
+            // handled below, since a field nobody can leave by keyboard would be
+            // worse than one that cannot record Tab as a hotkey.
+            return DLGC_WANTALLKEYS;
+
+        case WM_SETFOCUS:
+            g_hotkeyField = h;
+            g_hotkeyCommitted = TextOf(h);
+            break;
+
+        case WM_KILLFOCUS:
+            // A dangling "Ctrl+" is never a value; the field goes back to what
+            // is actually registered.
+            if (g_hotkeyField == h) {
+                ::SetWindowTextW(h, g_hotkeyCommitted.c_str());
+                g_hotkeyField = nullptr;
+            }
+            break;
+
+        case WM_SYSKEYDOWN:
+        case WM_KEYDOWN: {
+            const UINT vk = (UINT)wp;
+            // Any balloon still up belongs to the previous keystroke.
+            ::SendMessageW(h, EM_HIDEBALLOONTIP, 0, 0);
+
+            if (vk == VK_TAB) {
+                HWND parent = ::GetParent(h);
+                const bool back = ::GetKeyState(VK_SHIFT) < 0;
+                if (parent) ::SetFocus(::GetNextDlgTabItem(parent, h, back));
+                return 0;
+            }
+            // Escape belongs to the window, not to the field. Asking for every
+            // key took it away from the dialog navigation, which is what
+            // normally turns it into IDCANCEL, so it is handed over by hand.
+            if (vk == VK_ESCAPE) {
+                if (HWND parent = ::GetParent(h))
+                    ::PostMessageW(parent, WM_COMMAND, MAKEWPARAM(IDCANCEL, 0), 0);
+                return 0;
+            }
+
+            if (vk == VK_BACK || vk == VK_DELETE) {
+                CommitHotkeyField(h, L"");
+                return 0;
+            }
+
+            if (vk == VK_CONTROL || vk == VK_MENU || vk == VK_SHIFT ||
+                vk == VK_LWIN || vk == VK_RWIN) {
+                // Nothing to record yet: showing the modifiers already held is
+                // what tells the user the field is listening.
+                std::wstring shown;
+                const UINT mods = HeldModifiers();
+                if (mods & MOD_WIN)     shown += L"Win+";
+                if (mods & MOD_CONTROL) shown += L"Ctrl+";
+                if (mods & MOD_ALT)     shown += L"Alt+";
+                if (mods & MOD_SHIFT)   shown += L"Shift+";
+                ::SetWindowTextW(h, shown.c_str());
+                return 0;
+            }
+
+            const UINT mods = HeldModifiers();
+            if (Hotkeys::IsUsableCombination(mods, vk)) {
+                CommitHotkeyField(h, Hotkeys::Format(mods, vk));
+            } else if (Hotkeys::Format(mods, vk).empty()) {
+                // The numeric keypad, the media keys and the punctuation keys
+                // that move with the keyboard layout land here.
+                ShowFieldTip(h, T(L"Key not accepted"),
+                             T(L"This key cannot be stored as a hotkey. Use a letter, a "
+                               L"number, a function key or one of the navigation keys."));
+            } else {
+                ShowFieldTip(h, T(L"Add a modifier"),
+                             T(L"A key on its own would be taken from every other program. "
+                               L"Hold Ctrl, Alt, Shift or Win — or use a function key, "
+                               L"which works alone."));
+            }
+            // Swallowed either way: an unusable key must not reach the edit
+            // control and become text.
+            return 0;
+        }
+
+        case WM_SYSKEYUP:
+        case WM_KEYUP:
+            if (HeldModifiers() == 0 && TextOf(h) != g_hotkeyCommitted)
+                ::SetWindowTextW(h, g_hotkeyCommitted.c_str());
+            return 0;
+
+        // The field only ever holds text this program wrote.
+        case WM_CHAR:
+        case WM_SYSCHAR:
+        case WM_UNICHAR:
+        case WM_PASTE:
+            return 0;
+
+        case WM_NCDESTROY:
+            if (g_hotkeyField == h) g_hotkeyField = nullptr;
+            ::RemoveWindowSubclass(h, HotkeyEditProc, id);
+            break;
+
+        default:
+            break;
+    }
+    return ::DefSubclassProc(h, msg, wp, lp);
+}
 
 // Press-and-hold subclass for the Compare button. BN_PUSHED / BN_UNPUSHED are
 // 16-bit-era notifications kept only for compatibility and do not arrive under
@@ -679,7 +860,11 @@ void App::CreateSettingsControls(HWND hwnd) {
         ry += S(24);
         sliders_[F_HWCONTRAST].Create(hwnd, T(L"Physical contrast"), F_HWCONTRAST, rx, ry, colW,
                                       0, 100, 50, 1, L"%", 0, IDC_SLIDER_RESET_BASE + F_HWCONTRAST);
-        ry += S(40);
+        ry += S(34);
+        // The panel's colour registers open in their own window: four more rows
+        // do not fit on a tab already reaching the bottom of the frame.
+        mk.Button(T(L"Monitor colour (RGB gain)..."), IDC_HWCOLOR, rx, ry, S(240), S(26));
+        ry += S(34);
         NameField(IDC_DDC_MONITOR_MODE, T(L"DDC mode (needs a restart)"), rx, ry + S(4), S(190));
         ddcModeCombo_ = mk.Combo(IDC_DDC_MONITOR_MODE, rx + S(196), ry, S(180), 120);
         ry += S(34);
@@ -708,8 +893,9 @@ void App::CreateSettingsControls(HWND hwnd) {
         monPowerCombo_ = mk.Combo(IDC_MON_POWER, cmdX3, ry, cmdW, 200);
 
         // Slider rows are not created through Maker, so their handles are
-        // registered by hand.
-        for (int i = 0; i < F_COUNT; ++i) {
+        // registered by hand. The panel colour rows are skipped: they belong to
+        // the monitor colour window, which shows and hides them itself.
+        for (int i = 0; i < F_HWCOLOR_FIRST; ++i) {
             tabControls_[0].push_back(sliders_[i].label);
             tabControls_[0].push_back(sliders_[i].bar);
             tabControls_[0].push_back(sliders_[i].value);
@@ -834,6 +1020,7 @@ void App::CreateSettingsControls(HWND hwnd) {
 
         NameField(IDC_PROFILE_HOTKEY, T(L"Global hotkey"), fx, fy + S(4), S(126));
         profileHotkeyEdit_ = mk.Edit(IDC_PROFILE_HOTKEY, fieldX, fy, S(240));
+        ::SetWindowSubclass(profileHotkeyEdit_, HotkeyEditProc, 1, 0);
         fy += S(32);
 
         NameField(IDC_PROFILE_TRANSITION, T(L"Transition (ms)"), fx, fy + S(4), S(126));
@@ -1011,24 +1198,20 @@ void App::CreateSettingsControls(HWND hwnd) {
 
         Section(T(L"Global hotkeys"), rx, ry, colW,
               T(L"They work from anywhere in Windows, even with this window closed. "
-                L"Format: Ctrl+Alt+K, Ctrl+Shift+F5, Win+Alt+Up. Empty turns one off.")); ry += S(26);
-        const wchar_t* hkLabels[7] = {
-            T(L"Brightness up"), T(L"Brightness down"),
-            T(L"Saturation up"), T(L"Saturation down"),
-            T(L"Pause / resume"), T(L"Open this window"),
-            T(L"EMERGENCY: give the screen back"),
-        };
+                L"Click a field and press the combination you want.")); ry += S(26);
         for (int i = 0; i < 7; ++i) {
-            NameField(IDC_HK_BASE + i, hkLabels[i], rx, ry + S(4), S(150));
+            NameField(IDC_HK_BASE + i, T(HotkeyFieldLabel(i)), rx, ry + S(4), S(150));
             hkEdits_[i] = mk.Edit(IDC_HK_BASE + i, rx + S(156), ry, S(180));
+            ::SetWindowSubclass(hkEdits_[i], HotkeyEditProc, 1, 0);
             ry += S(28);
         }
         ry += S(6);
         NameField(IDC_HK_STEP, T(L"Hotkey step"), rx, ry + S(4), S(150));
         stepEdit_ = mk.Edit(IDC_HK_STEP, rx + S(156), ry, S(60), ES_NUMBER);
         ry += S(34);
-        mk.Hint(T(L"Format: Ctrl+Alt+K, Ctrl+Shift+F5, Win+Alt+Up. Leave a field empty "
-                  L"to turn that hotkey off."), rx, ry, colW, S(40));
+        mk.Hint(T(L"The field records what you press: Ctrl, Alt, Shift or Win plus one "
+                  L"key — a function key on its own also works. Backspace or Delete "
+                  L"turns that hotkey off."), rx, ry, colW, S(40));
         ry += S(42);
         // Stays empty while every hotkey registers; it reports the combinations
         // Windows refused, which the edit fields would otherwise still show as
@@ -1163,7 +1346,7 @@ void App::CreateSettingsControls(HWND hwnd) {
         Tip(IDC_RESTORE_SCREEN,
                T(L"Returns the display to its original state without touching the "
                  L"profile. Use it when another program messes up the color."));
-        for (int i = 0; i < F_COUNT; ++i)
+        for (int i = 0; i < F_HWCOLOR_FIRST; ++i)
             Tip(IDC_SLIDER_RESET_BASE + i, T(L"Returns this slider to its neutral value."));
 
         Tip(IDC_PER_MONITOR,
@@ -1172,6 +1355,11 @@ void App::CreateSettingsControls(HWND hwnd) {
         Tip(IDC_COMPARE,
              T(L"Hold it down to see the display as it was before the adjustments. "
                L"Release and the adjustment comes back."));
+        Tip(IDC_HWCOLOR,
+             T(L"The panel's own colour registers, over the video cable: they cost no "
+               L"tonal range and survive anything that resets the gamma ramp. Only on a "
+               L"monitor that answers DDC/CI, and almost always only in its user colour "
+               L"preset."));
         Tip(IDC_DDC_MONITOR_MODE,
              T(L"Automatic uses the normal interval between commands. Slow waits "
                L"longer, which helps on unstable docks and adapters. Never use excludes "
@@ -1234,7 +1422,8 @@ void App::CreateSettingsControls(HWND hwnd) {
                  L"this profile, on its own."));
         Tip(IDC_PROFILE_HOTKEY,
                T(L"The combination that activates this profile from anywhere in "
-                 L"Windows. For example Ctrl+Alt+1. Empty turns it off."));
+                 L"Windows. Click here and press it — Ctrl+Alt+1, for instance. "
+                 L"Backspace turns it off."));
         Tip(IDC_PROFILE_TRANSITION,
                T(L"How long the display takes to reach this profile. 0 switches at "
                  L"once; a few hundred ms hide the jump."));
@@ -1365,7 +1554,7 @@ void App::CreateSettingsControls(HWND hwnd) {
                L"brightness stays in charge, so the two do not fight."));
         Tip(IDC_HK_BASE + 6,
              T(L"Returns the display to its original state and pauses Zdisplay, from "
-               L"anywhere in Windows. Clear this field and the default comes back on "
+               L"anywhere in Windows. Clearing this field brings the default back on "
                L"its own — it is the emergency exit."));
 
         // Diagnostics tab.
@@ -1724,7 +1913,10 @@ void App::LoadAdjustments() {
     ::EnableWindow(perMonitorCheck_, !key.empty());
     SetChecked(perMonitorCheck_, !key.empty() && p && p->Find(key) != nullptr);
 
-    for (int i = 0; i < F_COUNT; ++i) {
+    // The panel colour rows are left out: they belong to the monitor colour
+    // window, which seeds them from the panel's own values and is the only place
+    // that knows whether they are being managed at all.
+    for (int i = 0; i < F_HWCOLOR_FIRST; ++i) {
         double v = *FieldPtr(*a, (AdjField)i);
         if (i == F_HWBRIGHT && v < 0) v = 70;
         if (i == F_HWCONTRAST && v < 0) v = 50;

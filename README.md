@@ -188,7 +188,7 @@ there, the universal path takes over.
 | **Color matrix (Magnification API)** | **saturation**, hue, inversion | **any PC, integrated graphics included** | global effect (not per monitor); does not reach exclusive fullscreen |
 | **NVIDIA (NVAPI)** | vibrance (DVC), hue | NVIDIA only | loaded at runtime |
 | **AMD (ADL)** | saturation, hue | AMD only | loaded at runtime |
-| **DDC/CI** | brightness, contrast and **RGB gain** in the monitor hardware, plus input, color preset and power | compatible external monitors | slow; queued with a minimum interval to spare the EEPROM |
+| **DDC/CI** | brightness, contrast, **RGB gain** and **saturation** in the monitor hardware, plus input, color preset and power | compatible external monitors | slow; queued with a minimum interval to spare the EEPROM |
 | **SDR white level** | **brightness on an HDR-enabled display**, where the ramp does not apply | Windows 10 1803+, per monitor | governs SDR content; HDR video and games keep their own brightness |
 | **Backlight (WMI)** | physical brightness of the internal panel | laptops and all-in-ones | uses the steps the panel declares; matches the WMI instance to the right monitor |
 | **Overlay** | dimming below the panel minimum | any PC | washes out contrast; appears in screenshots |
@@ -299,7 +299,7 @@ a profile or a schedule rule for it.
 | **Night temperature** | 3400 K is incandescent-lamp color. The lower it is, the less blue reaches your eyes. |
 | **Night brightness** | % of what the profile asks for. It matters as much as color: what tires the eyes is the screen being much brighter than the room. |
 | **Transition smoothness** | Minutes. The change happens gradually **around** the time, half before and half after. An hour is already imperceptible. |
-| **Night / day begins** | A clock time (`22:00`) or the sun itself: `por`, `nascer`, `por-30`, `nascer+45`. |
+| **Night / day begins** | A clock time (`22:00`) or the sun itself: `sunset`, `sunrise`, `sunset-30`, `sunrise+45`. |
 | **Eye break** | Every N minutes, a discreet tray reminder to look at something about 6 metres away for 20 seconds. |
 
 The layer **never works against what you chose**: if the active profile already
@@ -425,6 +425,19 @@ zdisplay.exe
 Double-click the tray icon to open the settings; middle-click pauses and
 restores the screen immediately.
 
+### The monitor's own colour
+
+*Monitor colour (RGB gain)…*, at the bottom of the **Monitor hardware** section
+on the Adjustments tab, opens the panel's own colour registers over DDC/CI: the
+RGB gain and, where the panel offers it, its colour saturation. They are stored
+in the profile like the physical brightness is, they cost no tonal range because
+nothing goes through the gamma ramp, and unchecking a group gives the monitor
+back the values it had before Zdisplay wrote to them.
+
+Each group appears only on a monitor that answered those registers, and nearly
+every panel accepts a gain write only while its colour preset is the **user**
+one — set that preset first, on the monitor itself or under *Monitor commands*.
+
 ### Command line
 
 With Zdisplay already running, any invocation becomes a command to the running
@@ -472,7 +485,12 @@ shows a dialog. `zdisplay.exe --help` lists everything.
 | `Ctrl+Alt+Shift+K` | **emergency**: restore the screen and pause |
 
 Configurable in the **System** tab (*Sistema*), and each profile can have its
-own.
+own. The fields record the keys: click one and press the combination — Ctrl,
+Alt, Shift or Win plus a key, or a function key on its own. Backspace or Delete
+turns a hotkey off. A key the field will not take says why on the spot, a
+combination already used by another Zdisplay action is refused by name, and one
+that another program holds is reported under the fields instead of failing
+silently.
 
 ### Profiles and automation
 
@@ -489,8 +507,8 @@ Profile selection follows this priority:
 4. the default profile.
 
 A schedule rule's *start* and *end* fields accept a clock time (`22:00`) or the
-**sun itself**: `por` (sunset), `nascer` (sunrise), and with an offset such as
-`por-30` or `nascer+45`. Sunset moves by more than two hours over the year, so a
+**sun itself**: `sunset`, `sunrise`, and with an offset such as
+`sunset-30` or `sunrise+45`. Sunset moves by more than two hours over the year, so a
 fixed range is wrong for half the months. For this to work, fill in *Latitude*
 and *Longitude* in the same tab — without a location, a solar rule simply does
 not match, rather than switching profiles at the time of a place you are not in.
@@ -544,8 +562,8 @@ make sure that never happens.
 
 **Reset restores *your* screen, not a "neutral" one.** At startup Zdisplay reads
 and stores in `baseline.dat` each monitor's gamma ramp, its physical brightness
-and contrast (DDC/CI), the laptop backlight, and the vibrance already set in the
-GPU panel. Reset restores exactly those values. If the monitor has an ICC
+and contrast (DDC/CI), its RGB gain and saturation registers, the laptop
+backlight, and the vibrance already set in the GPU panel. Reset restores exactly those values. If the monitor has an ICC
 calibration, it is **preserved**: adjustments are applied *on top of* the
 calibration, with interpolation to avoid banding.
 
@@ -708,12 +726,14 @@ administrator, and only takes effect after restarting the Windows session.
 
   ```ini
   [modelo:FUS087C]
-  regra=brilho-vcp:6B
+  regra=brightness-vcp:6B
   ```
 
-  It accepts `bloquear` (block), `sem-capacidades` (no capabilities) and
-  `brilho-vcp:XX` (brightness VCP register), and your rule outranks the built-in
-  one — so you can undo a factory entry that gets in the way of your hardware.
+  It accepts `block`, `no-caps` (do not read the capability string) and
+  `brightness-vcp:XX` (brightness VCP register), and your rule outranks the
+  built-in one — so you can undo a factory entry that gets in the way of your
+  hardware. The Portuguese spellings written by versions up to 1.1 (`bloquear`,
+  `sem-capacidades`, `brilho-vcp:XX`) are still read.
   The identifier is the EDID one (three manufacturer letters + product code),
   visible in the **Diagnostics** tab.
 - **"Detected" is not "works".** The *test the monitor* button, in the

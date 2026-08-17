@@ -25,7 +25,9 @@ ZDISPLAY_LIBS=-lgdi32 -luser32 -ladvapi32 -lshell32 -lcomctl32 -lcomdlg32 -lole3
 
 # Tests: pure logic, no hardware dependency. backends_display.cpp is included
 # because BlendRamp, ComposeWithBaseline, RampIsIdentity and BuildMatrix are pure
-# and nothing runs at load time.
+# and nothing runs at load time. services.cpp is there for the same reason:
+# Hotkeys::Parse and Hotkeys::Format are the text form of every hotkey in the
+# configuration file, and neither one talks to the system.
 #
 # -D_GLIBCXX_ASSERTIONS enables libstdc++ bounds checking (vector and string
 # operator[], iterators). It applies to tests and debug builds, not to release: a
@@ -33,8 +35,8 @@ ZDISPLAY_LIBS=-lgdi32 -luser32 -ladvapi32 -lshell32 -lcomctl32 -lcomdlg32 -lole3
 # stuck on whatever adjustment was active. In the tests aborting is the desired
 # outcome, since it turns every case into a bounds check.
 ZDISPLAY_TESTFLAGS=-O1 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong
-ZDISPLAY_TESTSRC=tests/test_zdisplay.cpp src/core.cpp src/common.cpp src/strings.cpp src/backends_display.cpp
-ZDISPLAY_TESTLIBS=-lshell32 -lole32 -ladvapi32 -luser32 -lgdi32 -luuid
+ZDISPLAY_TESTSRC=tests/test_zdisplay.cpp src/core.cpp src/common.cpp src/strings.cpp src/backends_display.cpp src/services.cpp
+ZDISPLAY_TESTLIBS=-lshell32 -lole32 -ladvapi32 -luser32 -lgdi32 -luuid -lpsapi
 
 # Portable toolchain that build.bat downloads when no compiler is present.
 # The script verifies both the Authenticode signature and this SHA-256 before

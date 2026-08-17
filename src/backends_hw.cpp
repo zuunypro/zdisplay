@@ -47,6 +47,7 @@ constexpr BYTE VCP_CONTRAST   = 0x12;
 constexpr BYTE VCP_GAIN_RED   = 0x16;
 constexpr BYTE VCP_GAIN_GREEN = 0x18;
 constexpr BYTE VCP_GAIN_BLUE  = 0x1A;
+constexpr BYTE VCP_SATURATION = 0x8A;
 constexpr BYTE kGainCodes[3] = { VCP_GAIN_RED, VCP_GAIN_GREEN, VCP_GAIN_BLUE };
 
 constexpr double kMinIntervalMs = 140.0;
@@ -387,7 +388,7 @@ void DdcciBackend::LoadSafetyState() {
         const size_t nl = raw.find('\n');
         std::wstring key = Utf8ToWide(raw.substr(0, nl));
         if (key.empty()) key = L"*";
-        capsUnsafe_[key] = L"queda durante leitura de capacidades";
+        capsUnsafe_[key] = L"crash while reading capabilities";
         SaveSafetyState();
         ::DeleteFileW(marker.c_str());
         KLOG_W(L"DDC/CI: quarantine restored for '%s' after a crash during capabilities.",
@@ -480,9 +481,10 @@ bool DdcciBackend::Init() {
     for (const auto& kv : monitors_) {
         if (!desc.empty()) desc += L"; ";
         desc += kv.second.description;
-        desc += kv.second.hasBrightness ? L": brilho" : L": -";
-        if (kv.second.hasContrast) desc += L"+contraste";
-        if (kv.second.hasGain)     desc += L"+ganho RGB";
+        desc += kv.second.hasBrightness ? L": brightness" : L": -";
+        if (kv.second.hasContrast) desc += L"+contrast";
+        if (kv.second.hasGain)     desc += L"+RGB gain";
+        if (kv.second.hasSat)      desc += L"+saturation";
         if (kv.second.viaVcp)      desc += L" (raw VCP)";
     }
     details_ = desc;
@@ -716,9 +718,11 @@ void DdcciBackend::DiscoverNow() {
     struct PrevState {
         int b = -1, c = -1;
         int gain[3] = {-1, -1, -1};
+        int sat = -1;
         bool changedB = false, changedC = false;
         bool changedGain[3] = {false, false, false};
-        FeatureState bState, cState, gainState[3];
+        bool changedSat = false;
+        FeatureState bState, cState, gainState[3], satState;
         std::wstring caps;
     };
     std::map<std::wstring, PrevState> previous;
@@ -737,6 +741,9 @@ void DdcciBackend::DiscoverNow() {
                 s.changedGain[i] = kv.second.changedGain[i];
                 s.gainState[i] = kv.second.gainState[i];
             }
+            s.sat = kv.second.origSat;
+            s.changedSat = kv.second.changedSat;
+            s.satState = kv.second.satState;
             s.caps = kv.second.caps;   // re-reading would cost seconds per monitor
             previous[kv.first] = s;
         }
@@ -816,7 +823,7 @@ void DdcciBackend::DiscoverNow() {
                 // range: a panel answering outside its own range must not
                 // produce a nonsensical baseline.
                 if (cur < lo || cur > hi)
-                    KLOG_W(L"DDC/CI: '%s' respondeu brilho %lu fora da faixa %lu..%lu; "
+                    KLOG_W(L"DDC/CI: '%s' answered brightness %lu outside its own range %lu..%lu; "
                            L"treating it as the nearest limit.",
                            p.description.c_str(), cur, lo, hi);
                 p.origBrightness = DdcRawToPercent(cur, lo, hi);
@@ -878,6 +885,32 @@ void DdcciBackend::DiscoverNow() {
                 for (int c = 0; c < 3; ++c) p.origGain[c] = gains[c];
             }
 
+            // Color saturation, read on the same pass and by the same rule: one
+            // more command per monitor at discovery, which is what keeps the
+            // slider from having to wait for a probe the first time it is used.
+            // Only on a panel that already answered something, so a mute one is
+            // not sent a further slow command it will not answer either.
+            if (p.hasBrightness || p.hasContrast || p.hasGain) {
+                DWORD slo = 0, scur = 0, shi = 0, type = 0;
+                ddc::IoResult readResult;
+                if (ddc::ReadVcp(fns_, p.handle, ddc::VCP_SATURATION, &slo, &scur, &shi,
+                                 &type, &readResult) && shi > slo && type == 1) {
+                    p.hasSat = true;
+                    p.satMin = slo;
+                    p.satMax = shi;
+                    p.origSat = (int)Clamp((long)scur, (long)slo, (long)shi);
+                    p.lastWrittenSat = p.origSat;
+                    p.satState.liveProven = true;
+                    p.satState.codeType = type;
+                    p.satState.rawCurrent = scur;
+                    p.satState.rawMaximum = shi;
+                } else if (readResult.ok && type != 1) {
+                    KLOG_W(L"DDC/CI: '%s' declared saturation 0x%02X as momentary - "
+                           L"ignoring it to be safe.",
+                           p.description.c_str(), (unsigned)ddc::VCP_SATURATION);
+                }
+            }
+
             if (p.hasBrightness || p.hasContrast) {
                 // The first panel answers under the monitor's own key, which is
                 // what the rest of the program addresses. Further panels get a
@@ -902,6 +935,8 @@ void DdcciBackend::DiscoverNow() {
                         if (prev->second.gain[c] >= 0) p.origGain[c] = prev->second.gain[c];
                         p.changedGain[c] = prev->second.changedGain[c];
                     }
+                    if (prev->second.sat >= 0) p.origSat = prev->second.sat;
+                    p.changedSat = prev->second.changedSat;
                     // Failure and block state survives re-enumeration, while the
                     // freshly read value, range and type stay authoritative.
                     // This prevents a failure/hot-plug/retry loop on a code that
@@ -919,8 +954,10 @@ void DdcciBackend::DiscoverNow() {
                     p.contrastState = mergeState(p.contrastState, prev->second.cState);
                     for (int c = 0; c < 3; ++c)
                         p.gainState[c] = mergeState(p.gainState[c], prev->second.gainState[c]);
+                    p.satState = mergeState(p.satState, prev->second.satState);
                     p.everChanged = p.changedBrightness || p.changedContrast ||
-                                    p.changedGain[0] || p.changedGain[1] || p.changedGain[2];
+                                    p.changedGain[0] || p.changedGain[1] || p.changedGain[2] ||
+                                    p.changedSat;
                     p.caps = prev->second.caps;
                 }
 
@@ -931,12 +968,14 @@ void DdcciBackend::DiscoverNow() {
                                capsUnsafe_.find(target.key) != capsUnsafe_.end();
 
                 if (p.hasGain) ::InterlockedExchange(&anyGain_, 1);
-                KLOG_I(L"DDC/CI: %s em %s (original: brilho %d%%, contraste %d%%)%s%s%s",
+                KLOG_I(L"DDC/CI: %s on %s (original: brightness %d%%, contrast %d%%)%s%s%s",
                        p.description.c_str(), target.friendlyName.c_str(),
                        p.origBrightness, p.origContrast,
                        p.viaVcp ? L" [raw VCP: the high-level API refused this monitor]" : L"",
-                       p.hasGain ? L" [ganho RGB por hardware]" : L"",
-                       p.isClone ? L" [painel espelhado]" : L"");
+                       p.hasGain ? (p.hasSat ? L" [hardware RGB gain and saturation]"
+                                             : L" [hardware RGB gain]")
+                                 : (p.hasSat ? L" [hardware saturation]" : L""),
+                       p.isClone ? L" [mirrored panel]" : L"");
                 if (p.isClone) {
                     auto primary = monitors_.find(target.key);
                     if (primary != monitors_.end()) primary->second.clones.push_back(entryKey);
@@ -1002,7 +1041,7 @@ void DdcciBackend::FetchCapabilities() {
         const bool gotCaps = ddc::ReadCapabilitiesIsolated(item.first, &caps, &dangerousFailure);
         ::DeleteFileW(marker.c_str());
         if (dangerousFailure) {
-            MarkCapsUnsafe(item.first, L"crash ou timeout no processo auxiliar de capabilities");
+            MarkCapsUnsafe(item.first, L"crash or timeout in the capabilities helper process");
             KLOG_W(L"DDC/CI: the capabilities helper failed on '%s' - monitor put in quarantine.",
                    item.first.c_str());
             continue;
@@ -1026,9 +1065,9 @@ void DdcciBackend::FetchCapabilities() {
         it->second.contrastState.advertised = advertised(ddc::VCP_CONTRAST);
         for (int c = 0; c < 3; ++c)
             it->second.gainState[c].advertised = advertised(ddc::kGainCodes[c]);
-        KLOG_I(L"DDC/CI: '%s' declara %d codigos VCP.", it->second.description.c_str(),
+        KLOG_I(L"DDC/CI: '%s' declares %d VCP code(s).", it->second.description.c_str(),
                (int)codes.size());
-        KLOG_D(L"DDC/CI: capacidades de '%s': %s", it->second.description.c_str(), wide.c_str());
+        KLOG_D(L"DDC/CI: capabilities of '%s': %s", it->second.description.c_str(), wide.c_str());
     }
 
     // The machine survived the read, so the crash marker is cleared.
@@ -1060,6 +1099,38 @@ bool DdcciBackend::SupportsContrast(const std::wstring& monitorKey) const {
     return it != monitors_.end() && it->second.hasContrast &&
            !it->second.contrastState.blocked && !it->second.handleUnavailable;
 }
+bool DdcciBackend::SupportsGain(const std::wstring& monitorKey) const {
+    Guard g(const_cast<Lock&>(lock_));
+    auto it = monitors_.find(monitorKey);
+    if (it == monitors_.end() || !it->second.hasGain || it->second.handleUnavailable)
+        return false;
+    // All three channels or none: a white balance missing one channel is a way
+    // to tint the screen with no way to correct it back.
+    for (int c = 0; c < 3; ++c)
+        if (it->second.gainState[c].blocked) return false;
+    return true;
+}
+bool DdcciBackend::SupportsSaturation(const std::wstring& monitorKey) const {
+    Guard g(const_cast<Lock&>(lock_));
+    auto it = monitors_.find(monitorKey);
+    return it != monitors_.end() && it->second.hasSat &&
+           !it->second.satState.blocked && !it->second.handleUnavailable;
+}
+int DdcciBackend::OriginalGain(const std::wstring& monitorKey, int channel) const {
+    if (channel < 0 || channel > 2) return -1;
+    Guard g(const_cast<Lock&>(lock_));
+    auto it = monitors_.find(monitorKey);
+    if (it == monitors_.end() || !it->second.hasGain || it->second.origGain[channel] < 0)
+        return -1;
+    return (int)DdcRawToPercent((DWORD)it->second.origGain[channel], 0, it->second.gMax);
+}
+int DdcciBackend::OriginalSaturation(const std::wstring& monitorKey) const {
+    Guard g(const_cast<Lock&>(lock_));
+    auto it = monitors_.find(monitorKey);
+    if (it == monitors_.end() || !it->second.hasSat || it->second.origSat < 0) return -1;
+    return (int)DdcRawToPercent((DWORD)it->second.origSat,
+                                it->second.satMin, it->second.satMax);
+}
 
 double DdcciBackend::ReadBrightness(const std::wstring& monitorKey) {
     Guard g(lock_);
@@ -1086,6 +1157,8 @@ std::vector<std::wstring> DdcciBackend::Diagnose() const {
         if (p.hasContrast)   line += Format(L"  contrast %lu..%lu", p.cMin, p.cMax);
         if (p.hasGain)       line += Format(L"  RGB gain 0..%lu (R%d G%d B%d)", p.gMax,
                                             p.origGain[0], p.origGain[1], p.origGain[2]);
+        if (p.hasSat)        line += Format(L"  saturation %lu..%lu (%d)",
+                                            p.satMin, p.satMax, p.origSat);
         if (p.handleUnavailable) line += L"  [handle unavailable - waiting for rediscovery]";
         if (p.capsUnsafe) line += L"  [capabilities quarantined]";
         out.push_back(line);
@@ -1110,6 +1183,7 @@ std::vector<std::wstring> DdcciBackend::Diagnose() const {
             if (p.hasGain || p.gainState[c].lastError)
                 evidence(c == 0 ? L"gain R 0x16" : c == 1 ? L"gain G 0x18" : L"gain B 0x1A",
                          p.gainState[c]);
+        if (p.hasSat || p.satState.lastError) evidence(L"saturation 0x8A", p.satState);
         if (!p.caps.empty()) out.push_back(L"    capabilities: " + p.caps);
     }
     // Detected and mute. Listed rather than omitted, so that "this monitor has
@@ -1135,6 +1209,10 @@ void DdcciBackend::Apply(const MonitorTarget& m, const Adjustments& a) {
     Want w;
     w.brightness = a.hwBrightness;
     w.contrast   = a.hwContrast;
+    w.gainPercent[0] = a.hwRedGain;
+    w.gainPercent[1] = a.hwGreenGain;
+    w.gainPercent[2] = a.hwBlueGain;
+    w.satPercent     = a.hwSaturation;
 
     // With HDR enabled, SetDeviceGammaRamp reports success without changing a
     // pixel, so temperature and white balance cannot be applied through the
@@ -1149,7 +1227,9 @@ void DdcciBackend::Apply(const MonitorTarget& m, const Adjustments& a) {
             w.gainFactor[i] = Clamp(temp[i] * user[i] / 100.0, 0.0, 1.0);
     }
 
-    if (w.brightness < 0 && w.contrast < 0 && w.gainFactor[0] < 0) return;
+    if (w.brightness < 0 && w.contrast < 0 && w.gainFactor[0] < 0 &&
+        w.gainPercent[0] < 0 && w.gainPercent[1] < 0 && w.gainPercent[2] < 0 &&
+        w.satPercent < 0) return;
     w.dirty = true;
 
     {
@@ -1204,7 +1284,11 @@ void DdcciBackend::Reset(const MonitorTarget& m) {
         if (it->second.hasGain)
             for (int i = 0; i < 3; ++i)
                 if (it->second.changedGain[i]) w.gainFactor[i] = 1.0;
-        if (w.brightness < 0 && w.contrast < 0 && w.gainFactor[0] < 0) continue;
+        if (it->second.hasSat && it->second.changedSat && it->second.origSat >= 0)
+            w.satPercent = DdcRawToPercent((DWORD)it->second.origSat,
+                                           it->second.satMin, it->second.satMax);
+        if (w.brightness < 0 && w.contrast < 0 && w.gainFactor[0] < 0 && w.satPercent < 0)
+            continue;
 
         w.dirty = true;
         w.restoring = true;
@@ -1220,15 +1304,60 @@ void DdcciBackend::Reset(const MonitorTarget& m) {
     if (queued) ::SetEvent(wake_);
 }
 
+void DdcciBackend::RestoreColor(const std::wstring& monitorKey, bool gain) {
+    if (!available_) return;
+    {
+        Guard g(lock_);
+        for (auto& kv : monitors_) {
+            // A mirrored panel is keyed as the primary's key plus a unit
+            // separator, so the match is the key itself or that exact prefix —
+            // not any key that merely starts with the same characters.
+            if (!monitorKey.empty() && kv.first != monitorKey &&
+                kv.first.compare(0, monitorKey.size() + 1, monitorKey + L"\x1F") != 0)
+                continue;
+
+            if (gain && !kv.second.hasGain) continue;
+            if (gain && !kv.second.changedGain[0] && !kv.second.changedGain[1] &&
+                !kv.second.changedGain[2]) continue;
+            if (!gain && (!kv.second.hasSat || !kv.second.changedSat ||
+                          kv.second.origSat < 0)) continue;
+
+            // Merged into whatever is already queued rather than replacing it:
+            // an adjustment waiting in the queue is still wanted, and dropping
+            // it would leave the panel on the previous value until the next
+            // reassertion.
+            Want& w = pending_[kv.first];
+            if (gain) {
+                for (int c = 0; c < 3; ++c) {
+                    // The absolute target has to go, or it would win over the
+                    // factor below and write the value being undone.
+                    w.gainPercent[c] = -1;
+                    if (kv.second.changedGain[c]) w.gainFactor[c] = 1.0;
+                }
+            } else {
+                w.satPercent = DdcRawToPercent((DWORD)kv.second.origSat,
+                                               kv.second.satMin, kv.second.satMax);
+            }
+            w.dirty = true;
+            w.generation = ++nextGeneration_;
+        }
+    }
+    ::SetEvent(wake_);
+}
+
 void DdcciBackend::ForceRestore() {
     if (!available_) return;
     {
         Guard g(lock_);
         for (auto& kv : monitors_)
-            if (kv.second.origBrightness >= 0 || kv.second.origContrast >= 0) {
+            if (kv.second.origBrightness >= 0 || kv.second.origContrast >= 0 ||
+                kv.second.hasGain || kv.second.hasSat) {
                 kv.second.everChanged = true;
                 kv.second.changedBrightness = kv.second.origBrightness >= 0;
                 kv.second.changedContrast = kv.second.origContrast >= 0;
+                for (int c = 0; c < 3; ++c)
+                    kv.second.changedGain[c] = kv.second.hasGain && kv.second.origGain[c] >= 0;
+                kv.second.changedSat = kv.second.hasSat && kv.second.origSat >= 0;
             }
     }
     for (const auto& m : monitors::All()) Reset(m);
@@ -1256,12 +1385,27 @@ void DdcciBackend::AdoptBaseline(const Baseline& b) {
         if (kv.second.first >= 0)  it->second.origBrightness = kv.second.first;
         if (kv.second.second >= 0) it->second.origContrast = kv.second.second;
     }
+    // The color registers are keyed the same way, but without the migration
+    // above: they were only ever written under the current key form.
+    for (const auto& kv : b.panelColor) {
+        auto it = monitors_.find(kv.first);
+        if (it == monitors_.end()) continue;
+        for (int c = 0; c < 3; ++c)
+            if (kv.second.gain[c] >= 0) it->second.origGain[c] = kv.second.gain[c];
+        if (kv.second.saturation >= 0) it->second.origSat = kv.second.saturation;
+    }
 }
 
 void DdcciBackend::ExportBaseline(Baseline* b) const {
     Guard g(const_cast<Lock&>(lock_));
-    for (const auto& kv : monitors_)
+    for (const auto& kv : monitors_) {
         b->hardware[kv.first] = std::make_pair(kv.second.origBrightness, kv.second.origContrast);
+        if (!kv.second.hasGain && !kv.second.hasSat) continue;
+        Baseline::PanelColor color;
+        for (int c = 0; c < 3; ++c) color.gain[c] = kv.second.origGain[c];
+        color.saturation = kv.second.origSat;
+        b->panelColor[kv.first] = color;
+    }
 }
 
 DWORD WINAPI DdcciBackend::WorkerThunk(LPVOID self) {
@@ -1355,23 +1499,36 @@ void DdcciBackend::WorkerLoop() {
             const bool needB = doB && wantB != snapshot.lastWrittenB;
             const bool needC = doC && wantC != snapshot.lastWrittenC;
 
-            // RGB gain is always derived from the channel's original value, so
-            // no channel is pushed above what the monitor started with.
+            // A gain the profile states is written as it stands, in the panel's
+            // own range. The factor path is what serves the HDR fallback, and it
+            // is derived from the channel's original value, so no channel is
+            // pushed above what the monitor started with.
             int wantG[3] = {-1, -1, -1};
             bool needG[3] = {false, false, false};
             bool anyG = false;
             if (snapshot.hasGain) {
                 for (int c = 0; c < 3; ++c) {
-                    if (item.second.gainFactor[c] < 0 || snapshot.origGain[c] < 0 ||
-                        snapshot.gainState[c].blocked) continue;
-                    const double v = (double)snapshot.origGain[c] * item.second.gainFactor[c];
-                    wantG[c] = (int)Clamp(llround(v), 0LL, (long long)snapshot.gMax);
+                    if (snapshot.gainState[c].blocked) continue;
+                    if (item.second.gainPercent[c] >= 0) {
+                        wantG[c] = (int)ddc::ScaleTo(item.second.gainPercent[c], 0, snapshot.gMax);
+                    } else if (item.second.gainFactor[c] >= 0 && snapshot.origGain[c] >= 0) {
+                        const double v = (double)snapshot.origGain[c] * item.second.gainFactor[c];
+                        wantG[c] = (int)Clamp(llround(v), 0LL, (long long)snapshot.gMax);
+                    } else {
+                        continue;
+                    }
                     needG[c] = wantG[c] != snapshot.lastWrittenGain[c];
                     if (needG[c]) anyG = true;
                 }
             }
 
-            if (!needB && !needC && !anyG) {
+            const bool doS = item.second.satPercent >= 0 && snapshot.hasSat &&
+                             !snapshot.satState.blocked;
+            const int wantS = doS ? (int)ddc::ScaleTo(item.second.satPercent,
+                                                      snapshot.satMin, snapshot.satMax) : -1;
+            const bool needS = doS && wantS != snapshot.lastWrittenSat;
+
+            if (!needB && !needC && !anyG && !needS) {
                 // A restore that already matches the cache writes nothing, but
                 // must still clear the changed flags; otherwise it is
                 // re-queued on every future exit.
@@ -1383,16 +1540,19 @@ void DdcciBackend::WorkerLoop() {
                         if (doC) it->second.changedContrast = false;
                         for (int c = 0; c < 3; ++c)
                             if (item.second.gainFactor[c] >= 0) it->second.changedGain[c] = false;
+                        if (doS) it->second.changedSat = false;
                         it->second.everChanged = it->second.changedBrightness ||
                             it->second.changedContrast || it->second.changedGain[0] ||
-                            it->second.changedGain[1] || it->second.changedGain[2];
+                            it->second.changedGain[1] || it->second.changedGain[2] ||
+                            it->second.changedSat;
                     }
                 }
                 continue;
             }
 
             const int writes = (needB ? 1 : 0) + (needC ? 1 : 0) +
-                               (needG[0] ? 1 : 0) + (needG[1] ? 1 : 0) + (needG[2] ? 1 : 0);
+                               (needG[0] ? 1 : 0) + (needG[1] ? 1 : 0) + (needG[2] ? 1 : 0) +
+                               (needS ? 1 : 0);
             {
                 Guard g(lock_);
                 auto it = monitors_.find(item.first);
@@ -1406,7 +1566,8 @@ void DdcciBackend::WorkerLoop() {
 
                 if (!DdcWriteBatchFits(it->second.commandsThisMinute, writes,
                                        ddc::kMaxCommandsPerMinute)) {
-                    KLOG_D(L"DDC/CI: lote de %d excederia o limite de %d comandos/min em '%s'; adiando.",
+                    KLOG_D(L"DDC/CI: a batch of %d would exceed the %d commands/min ceiling on '%s'; "
+                           L"deferring it.",
                            writes, ddc::kMaxCommandsPerMinute, it->second.description.c_str());
                     if (queued == pending_.end() || !queued->second.dirty ||
                         queued->second.generation <= item.second.generation) {
@@ -1425,7 +1586,7 @@ void DdcciBackend::WorkerLoop() {
                 ::Sleep((DWORD)(commandInterval - elapsed));
 
             struct Sent { bool attempted = false; ddc::IoResult result; };
-            Sent sentB, sentC, sentG[3];
+            Sent sentB, sentC, sentG[3], sentS;
             bool first = true;
             bool handleDead = false;
             int attemptsUsed = 0;
@@ -1452,6 +1613,7 @@ void DdcciBackend::WorkerLoop() {
             if (needC) send(ddc::VCP_CONTRAST, wantC, &sentC);
             for (int c = 0; c < 3; ++c)
                 if (needG[c]) send(ddc::kGainCodes[c], wantG[c], &sentG[c]);
+            if (needS) send(ddc::VCP_SATURATION, wantS, &sentS);
 
             bool requestRediscovery = false;
             {
@@ -1518,10 +1680,14 @@ void DdcciBackend::WorkerLoop() {
                     if (needG[c]) update(ddc::kGainCodes[c], wantG[c], sentG[c],
                                          it->second.gainState[c], &it->second.lastWrittenGain[c],
                                          &it->second.changedGain[c], it->second.origGain[c]);
+                if (needS) update(ddc::VCP_SATURATION, wantS, sentS,
+                                  it->second.satState, &it->second.lastWrittenSat,
+                                  &it->second.changedSat, it->second.origSat);
 
                 it->second.everChanged = it->second.changedBrightness ||
                     it->second.changedContrast || it->second.changedGain[0] ||
-                    it->second.changedGain[1] || it->second.changedGain[2];
+                    it->second.changedGain[1] || it->second.changedGain[2] ||
+                    it->second.changedSat;
             }
             if (requestRediscovery) {
                 ::InterlockedExchange(&rediscover_, 1);
@@ -1560,7 +1726,7 @@ void DdcciBackend::WorkerLoop() {
 
             ::Sleep((DWORD)ddc::kMinIntervalMs);
             const ddc::IoResult r = ddc::Write(fns_, handle, code, (DWORD)value, viaVcp);
-            KLOG_I(L"DDC/CI: recurso 0x%02X = %d em '%s': %s", (unsigned)code, value,
+            KLOG_I(L"DDC/CI: feature 0x%02X = %d on '%s': %s", (unsigned)code, value,
                    key.c_str(), r.ok ? L"ok" : ddc::ErrorKindName(r.kind));
 
             if (r.ok) {
@@ -1619,6 +1785,9 @@ bool DdcciBackend::DrainPending() {
                        ? (double)kv.second.origContrast : -1.0;
             for (int c = 0; c < 3; ++c)
                 if (kv.second.changedGain[c]) w.gainFactor[c] = 1.0;
+            if (kv.second.changedSat && kv.second.origSat >= 0)
+                w.satPercent = DdcRawToPercent((DWORD)kv.second.origSat,
+                                               kv.second.satMin, kv.second.satMax);
             jobs.push_back(Job{kv.first, kv.second, w});
         }
         pending_.clear();
@@ -1656,12 +1825,19 @@ bool DdcciBackend::DrainPending() {
             send(ddc::VCP_CONTRAST, ddc::ScaleTo(job.want.contrast, job.mon.cMin, job.mon.cMax));
         if (job.mon.hasGain) {
             for (int c = 0; c < 3; ++c) {
+                if (job.want.gainPercent[c] >= 0) {
+                    send(ddc::kGainCodes[c], ddc::ScaleTo(job.want.gainPercent[c], 0, job.mon.gMax));
+                    continue;
+                }
                 if (job.want.gainFactor[c] < 0 || job.mon.origGain[c] < 0) continue;
                 const double v = (double)job.mon.origGain[c] * job.want.gainFactor[c];
                 send(ddc::kGainCodes[c],
                      (DWORD)Clamp(llround(v), 0LL, (long long)job.mon.gMax));
             }
         }
+        if (job.want.satPercent >= 0 && job.mon.hasSat)
+            send(ddc::VCP_SATURATION,
+                 ddc::ScaleTo(job.want.satPercent, job.mon.satMin, job.mon.satMax));
     }
     return restored;
 }

@@ -44,6 +44,20 @@ struct Adjustments {
     double hwBrightness = -1;    // 0..100 via DDC/CI or backlight
     double hwContrast   = -1;    // 0..100 via DDC/CI
 
+    /// The panel's own color registers, as a percentage of the range it
+    /// reports: RGB gain (VCP 0x16/0x18/0x1A) and saturation (0x8A).
+    ///
+    /// Separate from redGain/greenGain/blueGain above, which are a ceiling
+    /// applied to the gamma ramp. These reach the panel itself, so they cost no
+    /// tonal range and survive anything that resets the ramp — and, like every
+    /// hardware value, they only exist on a monitor that answers DDC/CI. Most
+    /// panels accept a gain write only while their color preset is the user
+    /// one; the interface says so beside the sliders.
+    double hwRedGain    = -1;
+    double hwGreenGain  = -1;
+    double hwBlueGain   = -1;
+    double hwSaturation = -1;
+
     /// Final per-channel multipliers: the white balance gains already combined
     /// with the blue light block.
     ///
@@ -151,7 +165,9 @@ bool SunTimes(int year, int month, int day, double latDeg, double lonDeg,
 /// Converts a rule's time text into minutes since midnight.
 ///
 /// Accepts clock times ("22:00") and solar times with an optional offset:
-/// "nascer", "por", "por-30" (half an hour before sunset), "nascer+45".
+/// "sunrise", "sunset", "sunset-30" (half an hour before sunset), "sunrise+45".
+/// The Portuguese wording written by versions up to 1.1 ("nascer", "por") is
+/// still understood.
 /// Returns -1 when the text is invalid or asks for a solar time with no location.
 int ResolveRuleTime(const std::wstring& text, const SYSTEMTIME& now,
                     const SolarContext& solar);
@@ -159,9 +175,18 @@ int ResolveRuleTime(const std::wstring& text, const SYSTEMTIME& now,
 /// Reports whether a rule's time text is well formed.
 ///
 /// Syntax only: independent of location and of the current date. Accepts both
-/// clock times and solar times such as "por" and "nascer+45", so the interface
-/// can validate exactly what the engine understands.
+/// clock times and solar times such as "sunset" and "sunrise+45", so the
+/// interface can validate exactly what the engine understands.
 bool IsValidRuleTime(const std::wstring& text);
+
+/// Rewrites a rule's time text in the wording the program itself writes.
+///
+/// A solar time becomes its English spelling with the offset kept
+/// ("por-30" -> "sunset-30"); a clock time and anything unrecognized come back
+/// trimmed but otherwise untouched. Applied where times enter the program, so
+/// one spelling reaches the file and the interface no matter which of the
+/// accepted ones was typed or was left in an older configuration.
+std::wstring CanonicalRuleTime(const std::wstring& text);
 
 /// Current Windows time zone offset, daylight saving included, in hours.
 double LocalTimeZoneHours();
@@ -187,9 +212,9 @@ struct Vision {
     /// A hard cut at the minute of sunset is more noticeable than the color shift.
     int    transitionMinutes = 60;
     /// When day and night begin. Accepts clock times and solar times
-    /// ("nascer", "por", "por-30"), the same text as the schedule rules.
-    std::wstring dayStart   = L"nascer";
-    std::wstring nightStart = L"por";
+    /// ("sunrise", "sunset", "sunset-30"), the same text as the schedule rules.
+    std::wstring dayStart   = L"sunrise";
+    std::wstring nightStart = L"sunset";
 
     /// Break reminder interval, in minutes. 0 disables it.
     ///
@@ -225,7 +250,7 @@ Adjustments ApplyVision(const Adjustments& base, double nightFraction, const Vis
 
 struct ScheduleRule {
     bool         enabled = true;
-    /// Clock time ("22:00") or solar time ("por", "nascer+30").
+    /// Clock time ("22:00") or solar time ("sunset", "sunrise+30").
     std::wstring start = L"22:00";
     std::wstring end   = L"06:00";
     std::wstring profile;
@@ -340,8 +365,9 @@ const MonitorQuirk* FindMonitorQuirk(const std::wstring& edidId);
 /// Installs the user rules read from the configuration file.
 void SetUserMonitorQuirks(const std::vector<MonitorQuirk>& quirks);
 
-/// Parses a rule in the file format: `bloquear`, `sem-capacidades` and
-/// `brilho-vcp:6B`, separated by commas or spaces.
+/// Parses a rule in the file format: `block`, `no-caps` and
+/// `brightness-vcp:6B`, separated by commas or spaces. The Portuguese spellings
+/// written by versions up to 1.1 are still accepted.
 /// Returns false when nothing was recognised, so that a mistyped line does not
 /// silently become an empty rule.
 bool ParseMonitorQuirk(const std::wstring& edidId, const std::wstring& text,
@@ -458,6 +484,15 @@ struct Baseline {
     std::map<std::wstring, std::pair<int, int>> hardware;  ///< brightness, contrast (-1 = unknown)
     int backlight = -1;                                 ///< internal panel (-1 = unknown)
 
+    /// The panel's own color registers before Zdisplay wrote to them, by
+    /// monitor key: RGB gain and saturation, in DDC units (-1 = unknown).
+    ///
+    /// Held for the same reason as the values above: after a crash the monitor
+    /// is still carrying what Zdisplay wrote, so a fresh read would record that
+    /// as the original and the user's white balance would be lost.
+    struct PanelColor { int gain[3] = {-1, -1, -1}; int saturation = -1; };
+    std::map<std::wstring, PanelColor> panelColor;
+
     /// Vibrance/saturation and hue as found in the vendor control panel, by
     /// display name. Persisting them keeps a later Init from reading back a
     /// value Zdisplay itself wrote and treating it as the original.
@@ -471,7 +506,7 @@ struct Baseline {
 
     bool Empty() const {
         return ramps.empty() && hardware.empty() && backlight < 0 &&
-               vendor.empty() && hdrWhite.empty();
+               vendor.empty() && hdrWhite.empty() && panelColor.empty();
     }
 };
 

@@ -50,6 +50,7 @@ SRC := src/common.cpp src/core.cpp src/strings.cpp src/icon.cpp \
        src/backends_display.cpp src/backends_vendor.cpp src/backends_hw.cpp \
        src/engine.cpp src/services.cpp \
        src/ui_app.cpp src/ui_settings.cpp src/ui_events.cpp src/ui_guard.cpp \
+       src/ui_color.cpp \
        src/ui_theme.cpp src/main.cpp
 
 # Release and debug use different flags and therefore need separate object

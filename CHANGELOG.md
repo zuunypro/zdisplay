@@ -5,6 +5,54 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-08-17
+
+The monitor's own colour registers are reachable from the interface, hotkey
+fields record the keys instead of asking for them to be typed, and the last
+Portuguese wording left in the Vision tab and in the log is gone.
+
+### Added
+
+- **The monitor's own colour registers**, in a window of their own reached from
+  *Monitor colour (RGB gain)…* on the Adjustments tab: RGB gain (VCP
+  0x16/0x18/0x1A) and colour saturation (0x8A). They are profile values like the
+  physical brightness, they are written straight to the panel, and each group is
+  offered only on a monitor that answered its registers. Turning a group off
+  gives the panel back the values it had before Zdisplay wrote to them, and so
+  does resetting the profile.
+  A monitor applies these only while its colour preset is the user one, which
+  the window says beside the sliders. Saturation is read once at discovery,
+  alongside the gains, so the sliders never wait for a probe.
+  `baseline.dat` now stores those registers too (format version 4, older files
+  still load): after a crash the panel is still carrying what Zdisplay wrote,
+  and a fresh read would record that as the user's own white balance.
+- **Hotkey fields record what you press.** Click one, press the combination and
+  it is registered at once — on the System tab and on each profile's hotkey.
+  Backspace or Delete turns a hotkey off. A field only ever holds a combination
+  the program can register: a bare key other than F1..F24 is refused, since a
+  global hotkey takes that key from every other program on the machine. Typed
+  combinations from an existing configuration keep working unchanged.
+  A refused key says why, in a balloon on the field itself, instead of leaving
+  a control that appears to ignore the keyboard. A combination that already
+  answers elsewhere in Zdisplay is refused by name — "Ctrl+Alt+K already answers
+  to 'Pause / resume'" — rather than being handed to Windows, which fails the
+  second registration of a combination even inside one process and reports it
+  exactly like a clash with another program.
+
+### Changed
+
+- The Vision tab writes the solar times in English (`sunrise`, `sunset`,
+  `sunset-30`), which is what the rest of the interface documents. The
+  Portuguese wording is still read, and a configuration written by an earlier
+  version is converted when it loads, so the field stops showing `por` and
+  `nascer` in an English window.
+- The monitor rules in the configuration file are written as `block`, `no-caps`
+  and `brightness-vcp:XX`. The Portuguese spellings are still read.
+- The log and the diagnostics are English throughout. The lines that were still
+  in Portuguese — DDC/CI capabilities and features, the detected monitor list,
+  the vendor GPU ranges, the gamma range limit, HDR white level and pause — say
+  the same thing in the language the rest of the file is already in.
+
 ## [1.1.0] — 2026-08-14
 
 Zdisplay speaks English. The interface, the installer and `--help` are written
@@ -172,6 +220,7 @@ First public, stable release.
   UndefinedBehaviorSanitizer, and analyses the sources with CodeQL. Workflow
   actions are pinned by commit digest.
 
-[Unreleased]: https://github.com/zuunypro/zdisplay/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/zuunypro/zdisplay/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/zuunypro/zdisplay/releases/tag/v1.2.0
 [1.1.0]: https://github.com/zuunypro/zdisplay/releases/tag/v1.1.0
 [1.0.0]: https://github.com/zuunypro/zdisplay/releases/tag/v1.0.0

@@ -7,6 +7,7 @@
 //
 // Build with:  build.bat test     (or  make test)
 #include "../src/core.h"
+#include "../src/services.h"
 
 #include <cstdio>
 #include <string>
@@ -582,14 +583,159 @@ void TestVision() {
     Check(bad.nightBrightness >= 20, "brilho noturno tem piso");
     Check(bad.transitionMinutes >= 0 && bad.breakMinutes <= 240,
           "transicao e pausa presas na faixa");
-    Check(bad.dayStart == L"nascer" && bad.nightStart == L"por",
+    Check(bad.dayStart == L"sunrise" && bad.nightStart == L"sunset",
           "horario vazio volta ao padrao solar");
 
     bad.dayStart = L"nascer+abc";
     bad.nightStart = L"por-30lixo";
     bad.Sanitize();
-    Check(bad.dayStart == L"nascer" && bad.nightStart == L"por",
+    Check(bad.dayStart == L"sunrise" && bad.nightStart == L"sunset",
           "horario solar com texto extra e recusado");
+
+    // Uma configuracao escrita ate a 1.1 guarda os nomes em portugues. Eles
+    // continuam valendo, mas a janela mostra o campo como ele esta guardado,
+    // entao a normalizacao acontece ao carregar.
+    Vision legacy;
+    legacy.dayStart = L"nascer";
+    legacy.nightStart = L"por-30";
+    legacy.Sanitize();
+    Check(legacy.dayStart == L"sunrise" && legacy.nightStart == L"sunset-30",
+          "horario solar em portugues vira a grafia em ingles",
+          Utf8(legacy.nightStart));
+}
+
+void TestHardwareColorFields() {
+    Section("Cor do monitor por hardware");
+
+    Adjustments a;
+    Check(a.hwRedGain < 0 && a.hwGreenGain < 0 && a.hwBlueGain < 0 && a.hwSaturation < 0,
+          "por padrao o perfil nao mexe nos registradores do painel");
+
+    // -1 quer dizer "nao gerenciado" e tem de sobreviver ao saneamento; qualquer
+    // outro valor entra na faixa 0..100.
+    a.hwRedGain = -7;
+    a.hwGreenGain = 250;
+    a.hwBlueGain = 0;
+    a.hwSaturation = 61.5;
+    a.Sanitize();
+    Check(a.hwRedGain == -1, "valor negativo qualquer vira 'nao gerenciado'");
+    CheckNear(a.hwGreenGain, 100, 0.01, "acima da faixa e preso no maximo");
+    CheckNear(a.hwBlueGain, 0, 0.01, "zero continua sendo um valor, nao 'desligado'");
+    CheckNear(a.hwSaturation, 61.5, 0.01, "valor fracionario dentro da faixa fica igual");
+
+    // Uma transicao anima o que a placa de video interpola; os registradores do
+    // painel vao direto ao destino, porque cada passo seria outra escrita na
+    // EEPROM do monitor.
+    Adjustments from, to;
+    from.hwRedGain = 20; from.hwSaturation = 20;
+    to.hwRedGain = 80;   to.hwSaturation = 80;
+    const Adjustments mid = Adjustments::Blend(from, to, 0.5);
+    CheckNear(mid.hwRedGain, 80, 0.01, "ganho do painel salta para o destino");
+    CheckNear(mid.hwSaturation, 80, 0.01, "saturacao do painel tambem");
+
+    // O piso de luz nao conta com os registradores do painel — nenhum deles
+    // apaga a tela sozinho —, mas tambem nao pode ser derrubado por eles.
+    Adjustments dark;
+    dark.hwRedGain = 0; dark.hwGreenGain = 0; dark.hwBlueGain = 0;
+    dark.Sanitize();
+    Check(dark.EffectiveLuminance() >= kFloorLuminance,
+          "ganho zero em todos os canais nao derruba o piso de luz");
+}
+
+void TestHotkeyText() {
+    Section("Texto das combinacoes de atalho");
+
+    const auto formats = [](UINT mods, UINT vk, const wchar_t* expected) {
+        return Hotkeys::Format(mods, vk) == expected;
+    };
+
+    Check(formats(MOD_CONTROL | MOD_ALT, L'K', L"Ctrl+Alt+K"), "modificadores na ordem canonica");
+    Check(formats(MOD_CONTROL | MOD_SHIFT, VK_F5, L"Ctrl+Shift+F5"), "tecla de funcao");
+    Check(formats(MOD_WIN | MOD_ALT, VK_UP, L"Win+Alt+Up"), "tecla nomeada");
+    Check(formats(MOD_CONTROL | MOD_ALT | MOD_SHIFT, L'K', L"Ctrl+Alt+Shift+K"),
+          "tres modificadores");
+    Check(Hotkeys::Format(MOD_CONTROL, VK_NUMPAD0).empty(),
+          "tecla que o arquivo nao saberia guardar nao vira texto");
+    Check(Hotkeys::Format(MOD_CONTROL, 0).empty(), "sem tecla nao ha combinacao");
+
+    // Gravar e ler de volta tem de dar a mesma combinacao: e o que garante que
+    // o campo que captura teclas e o arquivo digitado a mao falam a mesma
+    // lingua.
+    const UINT kMods[] = { MOD_CONTROL, MOD_ALT, MOD_SHIFT, MOD_WIN,
+                           MOD_CONTROL | MOD_ALT, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_WIN };
+    const UINT kKeys[] = { L'A', L'Z', L'0', L'9', VK_F1, VK_F24, VK_UP, VK_DOWN,
+                           VK_LEFT, VK_RIGHT, VK_PRIOR, VK_NEXT, VK_HOME, VK_END,
+                           VK_INSERT, VK_DELETE, VK_SPACE, VK_RETURN, VK_TAB,
+                           VK_ESCAPE, VK_OEM_PLUS, VK_OEM_MINUS };
+    bool roundTrip = true;
+    std::wstring firstBad;
+    for (UINT mods : kMods) {
+        for (UINT vk : kKeys) {
+            const std::wstring text = Hotkeys::Format(mods, vk);
+            UINT backMods = 0, backVk = 0;
+            if (!text.empty() && Hotkeys::Parse(text, &backMods, &backVk) &&
+                backMods == mods && backVk == vk) continue;
+            roundTrip = false;
+            if (firstBad.empty()) firstBad = text.empty() ? L"(vazio)" : text;
+        }
+    }
+    Check(roundTrip, "toda combinacao escrita e lida de volta igual", Utf8(firstBad));
+
+    // As grafias em portugues aceitas desde a 1.0 continuam sendo lidas.
+    UINT mods = 0, vk = 0;
+    Check(Hotkeys::Parse(L"Controle+cima", &mods, &vk) && mods == MOD_CONTROL && vk == VK_UP,
+          "a grafia antiga continua sendo lida");
+
+    Check(Hotkeys::IsUsableCombination(MOD_CONTROL | MOD_ALT, L'K'),
+          "combinacao com modificador serve");
+    Check(Hotkeys::IsUsableCombination(0, VK_F9),
+          "tecla de funcao sozinha serve");
+    Check(!Hotkeys::IsUsableCombination(0, L'K'),
+          "letra sozinha nao vira atalho global");
+    Check(!Hotkeys::IsUsableCombination(MOD_CONTROL, VK_NUMPAD0),
+          "tecla irrepresentavel nao vira atalho");
+
+    // Duas grafias da mesma combinacao sao o mesmo atalho para o Windows, que
+    // recusa o segundo registro mesmo dentro do proprio processo. Comparar o
+    // texto cru deixaria o conflito passar e viraria "outro programa ja usa".
+    Check(Hotkeys::SameCombination(L"Ctrl+Alt+K", L"ctrl+alt+k"),
+          "a caixa nao muda a combinacao");
+    Check(Hotkeys::SameCombination(L"Ctrl+Alt+K", L"Alt+Ctrl+K"),
+          "a ordem dos modificadores nao muda a combinacao");
+    Check(Hotkeys::SameCombination(L"Ctrl+Up", L" Controle + cima "),
+          "a grafia antiga e a mesma combinacao");
+    Check(!Hotkeys::SameCombination(L"Ctrl+Alt+Up", L"Controle+cima"),
+          "faltando um modificador ja e outra combinacao");
+    Check(!Hotkeys::SameCombination(L"Ctrl+Alt+K", L"Ctrl+Shift+K"),
+          "modificador diferente e outra combinacao");
+    Check(!Hotkeys::SameCombination(L"Ctrl+Alt+K", L"Ctrl+Alt+L"),
+          "tecla diferente e outra combinacao");
+    // Campo vazio nao entra em conflito com campo vazio, senao desligar dois
+    // atalhos viraria um choque entre eles.
+    Check(!Hotkeys::SameCombination(L"", L""), "dois campos vazios nao colidem");
+    Check(!Hotkeys::SameCombination(L"Ctrl+Alt+K", L""), "vazio nao colide com nada");
+    Check(!Hotkeys::SameCombination(L"lixo", L"lixo"), "texto invalido nao colide consigo");
+}
+
+void TestCanonicalRuleTime() {
+    Section("Grafia canonica dos horarios solares");
+
+    Check(CanonicalRuleTime(L"nascer") == L"sunrise", "'nascer' vira 'sunrise'");
+    Check(CanonicalRuleTime(L"por") == L"sunset", "'por' vira 'sunset'");
+    Check(CanonicalRuleTime(L"pôr") == L"sunset", "'pôr' com acento tambem");
+    Check(CanonicalRuleTime(L" POR ") == L"sunset", "espacos e maiusculas nao atrapalham");
+    Check(CanonicalRuleTime(L"por-30") == L"sunset-30", "o deslocamento negativo e preservado");
+    Check(CanonicalRuleTime(L"nascer+45") == L"sunrise+45", "o deslocamento positivo tambem");
+    Check(CanonicalRuleTime(L"sunset-30") == L"sunset-30", "o que ja esta em ingles nao muda");
+    Check(CanonicalRuleTime(L" 22:00 ") == L"22:00", "relogio so perde os espacos");
+    Check(CanonicalRuleTime(L"amanhecer") == L"amanhecer",
+          "texto que nao e horario solar volta inteiro");
+    Check(CanonicalRuleTime(L"") == L"", "vazio continua vazio");
+
+    // A grafia canonica tem de continuar valendo para o motor: normalizar um
+    // horario nao pode transforma-lo em texto que ResolveRuleTime recusa.
+    Check(IsValidRuleTime(CanonicalRuleTime(L"por-30")),
+          "o resultado da normalizacao continua sendo um horario valido");
 }
 
 void TestVcpCapabilities() {
@@ -1145,6 +1291,12 @@ void TestConfigRoundTrip() {
     saved.profiles[0].global.shadows = 62;
     saved.profiles[0].global.clarity = 41;
     saved.profiles[0].global.hue = -137;
+    // Monitor hardware: -1 means "not managed" and is not the same as 0, so the
+    // pair proves the file keeps the distinction.
+    saved.profiles[0].global.hwRedGain = 43;
+    saved.profiles[0].global.hwGreenGain = 0;
+    saved.profiles[0].global.hwBlueGain = 100;
+    saved.profiles[0].global.hwSaturation = 61;
     saved.profiles[0].perMonitor[L"MON#ABC123"] = saved.profiles[0].global;
     saved.profiles[0].perMonitor[L"MON#ABC123"].brightness = 55;
     saved.watchdogSeconds = 42;
@@ -1183,6 +1335,12 @@ void TestConfigRoundTrip() {
         CheckNear(a.shadows, 62, 0.01, "sombras sobreviveram");
         CheckNear(a.clarity, 41, 0.01, "definicao sobreviveu");
         CheckNear(a.hue, -137, 0.01, "matiz negativo sobreviveu");
+        CheckNear(a.hwRedGain, 43, 0.01, "ganho R por hardware sobreviveu");
+        CheckNear(a.hwGreenGain, 0, 0.01, "ganho G zero nao virou 'nao gerenciado'");
+        CheckNear(a.hwBlueGain, 100, 0.01, "ganho B por hardware sobreviveu");
+        CheckNear(a.hwSaturation, 61, 0.01, "saturacao por hardware sobreviveu");
+        CheckNear(loaded.profiles[1].global.hwRedGain, -1, 0.01,
+                  "perfil sem cor de hardware continua sem gerenciar");
 
         auto it = loaded.profiles[0].perMonitor.find(L"MON#ABC123");
         Check(it != loaded.profiles[0].perMonitor.end(), "sobrescrita por monitor sobreviveu");
@@ -1317,6 +1475,13 @@ void TestBaseline() {
     // The SDR white level has to survive process exit: without restoring it
     // here, a crashed session leaves an HDR screen stuck at the written value.
     b.hdrWhite[L"MONITOR#XYZ"] = 240;
+    // Os registradores de cor do painel pela mesma razao: depois de uma queda,
+    // o monitor ainda esta com o que o Zdisplay escreveu, e reler agora
+    // guardaria esse valor como se fosse o do usuario.
+    Baseline::PanelColor color;
+    color.gain[0] = 45; color.gain[1] = 50; color.gain[2] = 47;
+    color.saturation = 63;
+    b.panelColor[L"MONITOR#XYZ"] = color;
 
     Check(SaveBaseline(b), "gravou o estado original");
 
@@ -1332,6 +1497,12 @@ void TestBaseline() {
           loaded.vendor[L"\\\\.\\DISPLAY1"].second == 12, "vibrance e matiz voltaram");
     Check(loaded.hdrWhite.count(L"MONITOR#XYZ") == 1 &&
           loaded.hdrWhite[L"MONITOR#XYZ"] == 240, "nivel de branco SDR voltou");
+    Check(loaded.panelColor.count(L"MONITOR#XYZ") == 1 &&
+          loaded.panelColor[L"MONITOR#XYZ"].gain[0] == 45 &&
+          loaded.panelColor[L"MONITOR#XYZ"].gain[1] == 50 &&
+          loaded.panelColor[L"MONITOR#XYZ"].gain[2] == 47 &&
+          loaded.panelColor[L"MONITOR#XYZ"].saturation == 63,
+          "ganho RGB e saturacao do painel voltaram");
 
     // File cut in half, as a power loss during the write would leave it.
     std::string raw;
@@ -1364,6 +1535,8 @@ void TestBaseline() {
         Baseline back;
         Check(LoadBaseline(&back) && back.hdrWhite.empty() && back.backlight == 55,
               "baseline sem o bloco de HDR continua valido");
+        Check(back.panelColor.empty(),
+              "baseline sem o bloco de cor do painel tambem carrega");
     }
 
     ClearBaseline();
@@ -1687,6 +1860,13 @@ void TestRegressions() {
         Check(!m1.MatrixNeutral(), "saturacao sozinha derruba MatrixNeutral");
         Adjustments h1; h1.hue = 15;
         Check(!h1.MatrixNeutral(), "matiz sozinho derruba MatrixNeutral");
+        // Um perfil que so gerencia a cor do painel tem trabalho a fazer, mesmo
+        // com toda a parte de software neutra.
+        Adjustments hw1; hw1.hwRedGain = 40;
+        Check(hw1.GammaNeutral() && !hw1.Neutral(),
+              "ganho RGB do monitor sozinho derruba Neutral");
+        Adjustments hw2; hw2.hwSaturation = 70;
+        Check(!hw2.Neutral(), "saturacao do monitor sozinha derruba Neutral");
     }
 
     // The measured luminance has to account for gains, color temperature and gamma.
@@ -2179,9 +2359,13 @@ void TestPerformanceModes() {
     }
     ApplyPerformanceMode(nullptr);   // must not crash
 
-    Check(ParsePerformanceMode(L"qualidade") == PerformanceMode::Quality, "modo qualidade");
+    Check(ParsePerformanceMode(L"qualidade") == PerformanceMode::Quality,
+          "a grafia antiga em portugues continua sendo lida");
     Check(ParsePerformanceMode(L"quality") == PerformanceMode::Quality, "modo quality em ingles");
     Check(ParsePerformanceMode(L"  LEVE ") == PerformanceMode::Light, "modo tolera espaco e caixa");
+    // O que o programa grava e o que a documentacao diz: ingles.
+    Check(std::wstring(PerformanceModeName(PerformanceMode::Balanced)) == L"balanced",
+          "o modo e gravado em ingles");
     // A typo must land on the middle mode, never on an extreme.
     Check(ParsePerformanceMode(L"turbo") == PerformanceMode::Balanced, "modo desconhecido vira equilibrado");
     Check(ParsePerformanceMode(L"") == PerformanceMode::Balanced, "modo vazio vira equilibrado");
@@ -2249,6 +2433,9 @@ int wmain() {
     TestDdcSafetyRules();
     TestSolar();
     TestVision();
+    TestCanonicalRuleTime();
+    TestHardwareColorFields();
+    TestHotkeyText();
     TestLanguage();
     TestPerformanceModes();
 

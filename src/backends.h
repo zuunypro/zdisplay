@@ -403,6 +403,15 @@ public:
     /// this value.
     int OriginalBrightness(const std::wstring& monitorKey) const;
     bool SupportsContrast(const std::wstring& monitorKey) const;
+    /// Whether the panel answered the RGB gain registers, and the saturation one.
+    bool SupportsGain(const std::wstring& monitorKey) const;
+    bool SupportsSaturation(const std::wstring& monitorKey) const;
+    /// The panel's own value for a color register before Zdisplay wrote to it,
+    /// in percent; -1 when the register is not available. Offered as the
+    /// starting point for the sliders, so switching the controls on does not
+    /// move the image.
+    int OriginalGain(const std::wstring& monitorKey, int channel) const;
+    int OriginalSaturation(const std::wstring& monitorKey) const;
     /// Reads the current physical brightness (0..100), or -1.
     double ReadBrightness(const std::wstring& monitorKey);
 
@@ -472,6 +481,14 @@ public:
     /// the changes.
     void ForceRestore();
 
+    /// Gives one group of colour registers back to the monitor: the RGB gains,
+    /// or the saturation. An empty key means every panel.
+    ///
+    /// Needed because a profile that stops managing a register simply says
+    /// nothing about it, and silence leaves the panel on the last value written.
+    /// Only registers this session actually changed are written.
+    void RestoreColor(const std::wstring& monitorKey, bool gain);
+
 private:
     struct FeatureState {
         bool liveProven = false;
@@ -504,6 +521,13 @@ private:
         int origGain[3] = {-1, -1, -1};
         int lastWrittenGain[3] = {-1, -1, -1};
         FeatureState gainState[3];
+        /// Hardware color saturation (VCP 0x8A), in DDC units. Read on the same
+        /// pass as the gains, and absent from most panels.
+        bool hasSat = false;
+        DWORD satMin = 0, satMax = 100;
+        int origSat = -1;
+        int lastWrittenSat = -1;
+        FeatureState satState;
         /// Raw capability string, read on demand by the queue thread.
         std::wstring caps;
         /// Result of the last round-trip test, ready for the diagnostics.
@@ -538,6 +562,7 @@ private:
         bool everChanged = false;
         bool changedBrightness = false, changedContrast = false;
         bool changedGain[3] = {false, false, false};
+        bool changedSat = false;
         /// Hard per-minute command limit, to spare the EEPROM.
         int commandsThisMinute = 0;
         double minuteStartMs = 0;
@@ -552,6 +577,14 @@ private:
         /// Factor 0..1 applied to the monitor's original RGB gain. -1 = do not
         /// manage. Filled in only when the gamma ramp does not apply to the display.
         double gainFactor[3] = {-1, -1, -1};
+        /// Gain asked for by the profile, in percent of the range the monitor
+        /// reports. -1 = the profile does not manage this channel.
+        ///
+        /// Takes precedence over the factor above: a value the user set is an
+        /// instruction, while the factor is a fallback for a display whose gamma
+        /// ramp does nothing.
+        double gainPercent[3] = {-1, -1, -1};
+        double satPercent = -1;    ///< the same, for VCP 0x8A
         bool dirty = false;
         bool restoring = false;
         unsigned long long generation = 0;

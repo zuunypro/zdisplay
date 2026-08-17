@@ -19,6 +19,27 @@ public:
     /// Converts "Ctrl+Alt+K" into modifiers plus a virtual key.
     static bool Parse(const std::wstring& combo, UINT* mods, UINT* vk);
 
+    /// The inverse: modifiers plus a virtual key as "Ctrl+Alt+K".
+    ///
+    /// Returns the empty string for a key Parse could not read back, so the
+    /// text and the combination never disagree. Used by the settings fields,
+    /// which record the keys pressed instead of asking for them to be typed.
+    static std::wstring Format(UINT mods, UINT vk);
+
+    /// Whether a captured combination is worth offering as a global hotkey.
+    ///
+    /// Refuses what Format cannot write and bare keys other than F1..F24: a
+    /// global hotkey takes the key from every other program on the machine.
+    static bool IsUsableCombination(UINT mods, UINT vk);
+
+    /// Whether two texts name the same combination.
+    ///
+    /// Compared as modifiers plus key, not as text: "Ctrl+Alt+K", "ctrl+alt+k"
+    /// and "Alt+Ctrl+K" are one hotkey, and Windows refuses the second
+    /// registration of it whichever way it was spelled. Two texts that name no
+    /// valid combination are never the same, so empty fields do not collide.
+    static bool SameCombination(const std::wstring& a, const std::wstring& b);
+
     /// Returns the hotkey id, or 0 when the combination is invalid or already
     /// held by another program.
     int Register(const std::wstring& combo);

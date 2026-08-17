@@ -26,6 +26,18 @@ inline const wchar_t* PerformanceHintFor(PerformanceMode m) {
     }
 }
 
+/// Label of a System tab hotkey field, in field order. One source for the field
+/// the tab builds and for the message naming it in a conflict.
+const wchar_t* HotkeyFieldLabel(int index);
+
+/// Balloon anchored to an edit control, stating why the value it was just given
+/// was refused.
+///
+/// The alternative to a field that ignores a keystroke and says nothing, which
+/// reads as a broken control. Windows dismisses it on the next keystroke or
+/// when the field loses focus, so it never has to be taken back.
+void ShowFieldTip(HWND edit, const wchar_t* title, const std::wstring& text);
+
 // Defined in icon.cpp.
 HICON CreateAppIcon(int size);
 bool  WriteIcoFile(const std::wstring& path, int size);
@@ -37,13 +49,20 @@ bool ToastsGloballyOff();
 
 /// Adjustments fields driven by a slider. The index keeps slider handling
 /// generic instead of one branch per field.
+///
+/// The last four are built on the monitor colour window rather than on the
+/// Adjustments tab, and are otherwise ordinary rows: one array of rows means
+/// one place that reads a slider and writes the profile.
 enum AdjField {
     F_BRIGHT = 0, F_CONTRAST, F_GAMMA, F_TEMP,
     F_SHADOWS, F_CLARITY,
     F_SAT, F_VIB, F_HUE, F_DIM,
     F_RGAIN, F_GGAIN, F_BGAIN, F_BLUEBLOCK,
     F_HWBRIGHT, F_HWCONTRAST,
-    F_COUNT
+    F_HWRGAIN, F_HWGGAIN, F_HWBGAIN, F_HWSAT,
+    F_COUNT,
+    /// First field that belongs to the monitor colour window.
+    F_HWCOLOR_FIRST = F_HWRGAIN
 };
 
 double* FieldPtr(Adjustments& a, AdjField f);
@@ -84,6 +103,14 @@ public:
 
     void ShowSettings();
 
+    /// The panel's own colour registers, in a window of their own.
+    ///
+    /// Not on the Adjustments tab: that tab already runs to the bottom of a
+    /// window sized to fit a 1366x768 laptop, and four more rows would not fit
+    /// on one. These controls are also the only ones that depend on the monitor
+    /// being in its user colour preset, which needs a sentence of its own.
+    void ShowMonitorColor();
+
     /// Fast user switching notifications. While the session is in the
     /// background the engine stops reasserting; see Engine::SetSessionActive.
     void RegisterSessionNotifications();
@@ -97,6 +124,18 @@ public:
     /// and touches nothing outside the user's own data.
     void FactoryReset();
     void RegisterHotkeys();
+    /// The action that already answers to this combination, or an empty string.
+    ///
+    /// Windows refuses the second registration of a combination even inside one
+    /// process, and reports it exactly like a clash with another program. The
+    /// clash is found here first, so the field can say which of Zdisplay's own
+    /// actions is holding it instead of blaming a program that is not involved.
+    ///
+    /// `skipField` is the System tab field being edited (-1 for none) and
+    /// `skipProfile` the profile whose own hotkey is being edited; without them
+    /// every field would collide with itself.
+    std::wstring HotkeyOwner(const std::wstring& combo, int skipField,
+                             const std::wstring& skipProfile) const;
     void RefreshUi();
 
     /// Restores the screen and pauses. Bound to the emergency hotkey.
@@ -308,6 +347,24 @@ private:
          visBreak_ = nullptr, visStatus_ = nullptr;
 
     HWND diagEdit_ = nullptr;
+
+    // --- monitor colour window (ui_color.cpp) ---
+    static LRESULT CALLBACK ColorProc(HWND, UINT, WPARAM, LPARAM);
+    LRESULT OnColorMessage(HWND, UINT, WPARAM, LPARAM);
+    /// Fills the window from the profile being edited and enables only what the
+    /// selected panel actually answers.
+    void LoadMonitorColor();
+    /// Turns one of the two groups on or off, seeding the sliders with the
+    /// panel's own values so switching it on does not move the image.
+    void ToggleMonitorColorGroup(bool gain);
+    void CloseMonitorColor();
+    HWND  colorWnd_ = nullptr;
+    HFONT colorFont_ = nullptr;
+    HWND  colorGainCheck_ = nullptr, colorSatCheck_ = nullptr;
+    HWND  colorStatus_ = nullptr, colorPresetNote_ = nullptr;
+    /// The monitor whose registers the open window is editing. The window is
+    /// modal, so the selection cannot change underneath it.
+    std::wstring colorMonitorKey_;
 
     /// Adds a tooltip to a control.
     void AddTip(HWND control, const wchar_t* text);
