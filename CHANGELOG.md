@@ -39,6 +39,28 @@ Portuguese wording left in the Vision tab and in the log is gone.
   second registration of a combination even inside one process and reports it
   exactly like a clash with another program.
 
+### Fixed
+
+- **A monitor that answers nothing during one discovery pass no longer loses
+  what it was carrying.** Right after a resume it is routine for a panel to miss
+  a pass; it was then absent from the table, and the next pass that found it
+  recorded the value Zdisplay itself had written as the user's own and cleared
+  the flags that make the restore happen — so the panel was left on the adjusted
+  value at exit and the original was lost. What is known about each panel is now
+  held across passes, so a pass that fails changes nothing.
+- A register proven by a read stops being forgotten when a later read fails, so
+  the white balance controls no longer disable themselves during the burst of
+  rediscoveries that follows a resume. A register proven absent is not probed
+  again on every pass either, which is what keeps the saturation read from
+  costing a slow command per rediscovery on the panels that do not have it.
+- The *test the monitor* button also writes, reads back and restores the red
+  gain when the panel exposes it. It answered only for brightness before, which
+  left the new colour sliders with detection and no proof.
+- The recovery after an abnormal shutdown states which original it restored from
+  the baseline and what the panel was carrying instead. It reported only that it
+  was recovering, which is not enough to tell from a log whether it had anything
+  to do.
+
 ### Changed
 
 - The Vision tab writes the solar times in English (`sunrise`, `sunset`,

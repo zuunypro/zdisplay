@@ -614,8 +614,36 @@ private:
     void SaveSafetyState() const;
     void MarkCapsUnsafe(const std::wstring& monitorKey, const std::wstring& stage);
 
+    /// What a panel was carrying, kept across discovery passes.
+    ///
+    /// A monitor that answers nothing during one pass — routine right after a
+    /// resume — is not inserted into `monitors_`. Rebuilding this from
+    /// `monitors_` would therefore drop its original values, and the next pass
+    /// that does find it would record the value Zdisplay itself wrote as if it
+    /// were the user's own, and clear the flags that make the restore happen.
+    ///
+    /// Capabilities are held the same way and for the same reason: a register
+    /// proven by a read once does not stop existing because a later read failed,
+    /// and a register proven absent is not probed again on every pass.
+    struct KnownState {
+        int origBrightness = -1, origContrast = -1;
+        int origGain[3] = {-1, -1, -1};
+        int origSat = -1;
+        bool changedBrightness = false, changedContrast = false;
+        bool changedGain[3] = {false, false, false};
+        bool changedSat = false;
+        FeatureState brightnessState, contrastState, gainState[3], satState;
+        std::wstring caps;
+        bool gainProven = false;
+        DWORD gMax = 100;
+        /// Tri-state by the pair: neither flag set means "never established".
+        bool satProven = false, satAbsent = false;
+        DWORD satMin = 0, satMax = 100;
+    };
+
     DynLib lib_;
     std::map<std::wstring, Phys> monitors_;
+    std::map<std::wstring, KnownState> lastKnown_;
     std::vector<std::pair<HANDLE, size_t>> owned_;  // blocks returned by the API
     std::map<std::wstring, Want> pending_;
     std::map<std::wstring, std::wstring> capsUnsafe_;

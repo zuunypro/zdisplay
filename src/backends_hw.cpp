@@ -600,8 +600,12 @@ void DdcciBackend::ProbeFeatures() {
 
 void DdcciBackend::RunRoundTrip() {
     // Queue thread only: every step is a slow command to the monitor.
-    struct Job { std::wstring key, description; HANDLE handle; BYTE code;
-                 DWORD lo, hi, current; bool viaVcp; };
+    struct Job {
+        std::wstring key, description;
+        HANDLE handle;
+        BYTE brightnessCode;
+        bool testBrightness, testGain, viaVcp;
+    };
     std::vector<Job> jobs;
     {
         Guard g(lock_);
@@ -609,67 +613,81 @@ void DdcciBackend::RunRoundTrip() {
             // The round trip is a real EEPROM write and restore, requested by
             // the user for one monitor; running it on the mirrored panel too
             // would double the wear for the same answer.
-            if (kv.second.isClone) continue;
-            if (!kv.second.hasBrightness || kv.second.handleUnavailable) continue;
-            if (kv.second.brightnessState.blocked) continue;
+            if (kv.second.isClone || kv.second.handleUnavailable) continue;
+            const bool b = kv.second.hasBrightness && !kv.second.brightnessState.blocked;
+            // Red stands for the three channels: they are one control on the
+            // panel, and proving one is what the user needs to know before
+            // trusting the white balance sliders with a calibration.
+            const bool g2 = kv.second.hasGain && !kv.second.gainState[0].blocked;
+            if (!b && !g2) continue;
             Job j;
             j.key = kv.first;
             j.description = kv.second.description;
             j.handle = kv.second.handle;
-            j.code = kv.second.brightnessCode;
-            j.lo = kv.second.bMin;
-            j.hi = kv.second.bMax;
-            j.current = (DWORD)(kv.second.lastWrittenB >= 0 ? kv.second.lastWrittenB : (int)kv.second.bMin);
+            j.brightnessCode = kv.second.brightnessCode;
+            j.testBrightness = b;
+            j.testGain = g2;
             j.viaVcp = kv.second.viaVcp;
             jobs.push_back(j);
         }
     }
 
+    // Writes one register a step away from where it is, reads it back and puts
+    // it where it was. The value is read live rather than taken from the cache,
+    // so the probe does not start from a value the panel may have dropped.
+    const auto probe = [&](HANDLE handle, BYTE code, bool viaVcp) -> std::wstring {
+        DWORD lo = 0, cur = 0, hi = 0;
+        bool usedVcp = false;
+        if (!ddc::Read(fns_, handle, code, &lo, &cur, &hi, &usedVcp))
+            return L"did not answer the read";
+        if (hi <= lo) return Format(L"invalid range (%lu..%lu)", lo, hi);
+
+        // A step that fits inside the range and stays clear of both ends: a
+        // panel saturating at its minimum or maximum would otherwise look like
+        // it ignored the command.
+        const DWORD span = hi - lo;
+        const DWORD step = span >= 10 ? span / 10 : 1;
+        const DWORD target = (cur + step <= hi) ? cur + step
+                           : (cur >= lo + step ? cur - step : hi);
+        if (target == cur) return L"range too short to test";
+
+        const ddc::IoResult w = ddc::Write(fns_, handle, code, target, viaVcp);
+        if (!w.ok) return Format(L"the write failed (%s)", ddc::ErrorKindName(w.kind));
+
+        ::Sleep((DWORD)ddc::kMinIntervalMs);
+        DWORD lo2 = 0, back = 0, hi2 = 0;
+        bool vcp2 = false;
+        std::wstring verdict;
+        if (!ddc::Read(fns_, handle, code, &lo2, &back, &hi2, &vcp2))
+            verdict = L"wrote, but did not answer the read-back";
+        else if (back == target)
+            verdict = Format(L"obeyed (%lu -> %lu, range %lu..%lu)", cur, target, lo, hi);
+        else
+            verdict = Format(L"did NOT obey - asked %lu and got %lu (the monitor accepted "
+                             L"the command and ignored it)", target, back);
+
+        // Restore the previous value regardless of the outcome.
+        ::Sleep((DWORD)ddc::kMinIntervalMs);
+        ddc::Write(fns_, handle, code, cur, viaVcp);
+        return verdict;
+    };
+
     for (const auto& j : jobs) {
         if (::InterlockedCompareExchange(&running_, 0, 0) == 0) return;
 
         std::wstring verdict;
-
-        // Read the live value so the probe does not start from a stale cache.
-        DWORD lo = j.lo, cur = j.current, hi = j.hi;
-        bool usedVcp = false;
-        if (!ddc::Read(fns_, j.handle, j.code, &lo, &cur, &hi, &usedVcp)) {
-            verdict = L"did not answer the read";
-        } else if (hi <= lo) {
-            verdict = Format(L"invalid range (%lu..%lu)", lo, hi);
-        } else {
-            // A step that fits inside the range and stays clear of both ends:
-            // a panel saturating at its minimum or maximum would otherwise look
-            // like it ignored the command.
-            const DWORD span = hi - lo;
-            const DWORD step = span >= 10 ? span / 10 : 1;
-            const DWORD probe = (cur + step <= hi) ? cur + step
-                              : (cur >= lo + step ? cur - step : hi);
-            if (probe == cur) {
-                verdict = L"range too short to test";
-            } else {
-                const ddc::IoResult w = ddc::Write(fns_, j.handle, j.code, probe, j.viaVcp);
-                if (!w.ok) {
-                    verdict = Format(L"the write failed (%s)", ddc::ErrorKindName(w.kind));
-                } else {
-                    ::Sleep((DWORD)ddc::kMinIntervalMs);
-                    DWORD lo2 = 0, back = 0, hi2 = 0;
-                    bool vcp2 = false;
-                    if (!ddc::Read(fns_, j.handle, j.code, &lo2, &back, &hi2, &vcp2))
-                        verdict = L"wrote, but did not answer the read-back";
-                    else if (back == probe)
-                        verdict = Format(L"OK — obedeceu (%lu -> %lu, faixa %lu..%lu)",
-                                         cur, probe, lo, hi);
-                    else
-                        verdict = Format(L"did NOT obey - asked %lu and got %lu "
-                                         L"(o monitor aceitou o comando e ignorou)",
-                                         probe, back);
-
-                    // Restore the previous value regardless of the outcome.
-                    ::Sleep((DWORD)ddc::kMinIntervalMs);
-                    ddc::Write(fns_, j.handle, j.code, cur, j.viaVcp);
-                }
+        if (j.testBrightness)
+            verdict = Format(L"brightness 0x%02X: %s", (unsigned)j.brightnessCode,
+                             probe(j.handle, j.brightnessCode, j.viaVcp).c_str());
+        if (j.testGain) {
+            if (!verdict.empty()) {
+                verdict += L"; ";
+                ::Sleep((DWORD)ddc::kMinIntervalMs);
             }
+            // Only the red channel is written, and it is put back: the test
+            // answers whether the panel obeys, not what its balance should be.
+            verdict += Format(L"red gain 0x%02X: %s", (unsigned)ddc::VCP_GAIN_RED,
+                              probe(j.handle, ddc::VCP_GAIN_RED, j.viaVcp).c_str());
         }
 
         KLOG_I(L"DDC/CI: round-trip test on '%s': %s",
@@ -715,37 +733,35 @@ void DdcciBackend::DiscoverNow() {
     // Capture the originals before releasing the handles: ReleaseHandles()
     // clears monitors_, and a value re-read afterwards would be one this
     // process wrote rather than the user's own.
-    struct PrevState {
-        int b = -1, c = -1;
-        int gain[3] = {-1, -1, -1};
-        int sat = -1;
-        bool changedB = false, changedC = false;
-        bool changedGain[3] = {false, false, false};
-        bool changedSat = false;
-        FeatureState bState, cState, gainState[3], satState;
-        std::wstring caps;
-    };
-    std::map<std::wstring, PrevState> previous;
+    // Merged into what is already known, never rebuilt from scratch: a panel
+    // absent from the last pass keeps the state it had when it last answered.
     {
         Guard g(lock_);
         for (const auto& kv : monitors_) {
-            PrevState s;
-            s.b = kv.second.origBrightness;
-            s.c = kv.second.origContrast;
-            s.changedB = kv.second.changedBrightness;
-            s.changedC = kv.second.changedContrast;
-            s.bState = kv.second.brightnessState;
-            s.cState = kv.second.contrastState;
+            KnownState& s = lastKnown_[kv.first];
+            s.origBrightness = kv.second.origBrightness;
+            s.origContrast = kv.second.origContrast;
+            s.changedBrightness = kv.second.changedBrightness;
+            s.changedContrast = kv.second.changedContrast;
+            s.brightnessState = kv.second.brightnessState;
+            s.contrastState = kv.second.contrastState;
             for (int i = 0; i < 3; ++i) {
-                s.gain[i] = kv.second.origGain[i];
+                s.origGain[i] = kv.second.origGain[i];
                 s.changedGain[i] = kv.second.changedGain[i];
                 s.gainState[i] = kv.second.gainState[i];
             }
-            s.sat = kv.second.origSat;
+            s.origSat = kv.second.origSat;
             s.changedSat = kv.second.changedSat;
             s.satState = kv.second.satState;
-            s.caps = kv.second.caps;   // re-reading would cost seconds per monitor
-            previous[kv.first] = s;
+            if (!kv.second.caps.empty())
+                s.caps = kv.second.caps;   // re-reading would cost seconds per monitor
+            if (kv.second.hasGain) { s.gainProven = true; s.gMax = kv.second.gMax; }
+            if (kv.second.hasSat) {
+                s.satProven = true;
+                s.satAbsent = false;
+                s.satMin = kv.second.satMin;
+                s.satMax = kv.second.satMax;
+            }
         }
     }
 
@@ -806,6 +822,16 @@ void DdcciBackend::DiscoverNow() {
             p.handle = arr[i].hPhysicalMonitor;
             p.description = arr[i].szPhysicalMonitorDescription[0]
                           ? Trim(arr[i].szPhysicalMonitorDescription) : L"Monitor";
+
+            // The key this panel will be stored under, needed before the reads
+            // so that what is already known about it can steer them. It is the
+            // same expression the insertion below uses, and `responders` does
+            // not change in between.
+            const std::wstring entryKey = responders == 0
+                ? target.key
+                : target.key + Format(L"\x1F" L"clone%lu", (unsigned long)i);
+            auto known = lastKnown_.find(entryKey);
+            const KnownState* prior = known != lastKnown_.end() ? &known->second : nullptr;
 
             DWORD lo = 0, cur = 0, hi = 0, typeB = 0, typeC = 0;
             bool vcpB = false, vcpC = false;
@@ -883,14 +909,24 @@ void DdcciBackend::DiscoverNow() {
                 p.hasGain = true;
                 p.gMax = gMax;
                 for (int c = 0; c < 3; ++c) p.origGain[c] = gains[c];
+            } else if (prior && prior->gainProven) {
+                // A read that failed this pass does not unmake a register that
+                // answered before. Dropping it here would take the white balance
+                // controls away from the user in the middle of a session, and
+                // would make the restore skip the channels already written.
+                p.hasGain = true;
+                p.gMax = prior->gMax;
             }
 
             // Color saturation, read on the same pass and by the same rule: one
             // more command per monitor at discovery, which is what keeps the
             // slider from having to wait for a probe the first time it is used.
             // Only on a panel that already answered something, so a mute one is
-            // not sent a further slow command it will not answer either.
-            if (p.hasBrightness || p.hasContrast || p.hasGain) {
+            // not sent a further slow command it will not answer either — and
+            // never again on one where the register was already proven absent,
+            // which is most of them and is where the cost would be pure waste.
+            if ((p.hasBrightness || p.hasContrast || p.hasGain) &&
+                !(prior && prior->satAbsent)) {
                 DWORD slo = 0, scur = 0, shi = 0, type = 0;
                 ddc::IoResult readResult;
                 if (ddc::ReadVcp(fns_, p.handle, ddc::VCP_SATURATION, &slo, &scur, &shi,
@@ -908,35 +944,41 @@ void DdcciBackend::DiscoverNow() {
                     KLOG_W(L"DDC/CI: '%s' declared saturation 0x%02X as momentary - "
                            L"ignoring it to be safe.",
                            p.description.c_str(), (unsigned)ddc::VCP_SATURATION);
+                    lastKnown_[entryKey].satAbsent = true;
+                } else if (prior && prior->satProven) {
+                    // Same rule as the gains: a failed read does not unmake it.
+                    p.hasSat = true;
+                    p.satMin = prior->satMin;
+                    p.satMax = prior->satMax;
+                } else if (!readResult.ok) {
+                    // Never answered, and this is the pass that settles it.
+                    lastKnown_[entryKey].satAbsent = true;
                 }
             }
 
             if (p.hasBrightness || p.hasContrast) {
-                // The first panel answers under the monitor's own key, which is
-                // what the rest of the program addresses. Further panels get a
-                // derived key: the unit separator cannot occur in an EDID
+                // The panel is stored under the key computed before the reads:
+                // the first answers under the monitor's own key, which is what
+                // the rest of the program addresses, and further panels get a
+                // derived key. The unit separator cannot occur in an EDID
                 // identity or a device path, so a clone key can never collide
                 // with a real monitor key.
-                const std::wstring entryKey = responders == 0
-                    ? target.key
-                    : target.key + Format(L"\x1F" L"clone%lu", (unsigned long)i);
                 p.isClone = responders != 0;
                 ++responders;
 
                 // A previously captured original wins: the value just read may
                 // be one this process wrote.
-                auto prev = previous.find(entryKey);
-                if (prev != previous.end()) {
-                    if (prev->second.b >= 0) p.origBrightness = prev->second.b;
-                    if (prev->second.c >= 0) p.origContrast   = prev->second.c;
-                    p.changedBrightness = prev->second.changedB;
-                    p.changedContrast = prev->second.changedC;
+                if (prior) {
+                    if (prior->origBrightness >= 0) p.origBrightness = prior->origBrightness;
+                    if (prior->origContrast >= 0)   p.origContrast   = prior->origContrast;
+                    p.changedBrightness = prior->changedBrightness;
+                    p.changedContrast = prior->changedContrast;
                     for (int c = 0; c < 3; ++c) {
-                        if (prev->second.gain[c] >= 0) p.origGain[c] = prev->second.gain[c];
-                        p.changedGain[c] = prev->second.changedGain[c];
+                        if (prior->origGain[c] >= 0) p.origGain[c] = prior->origGain[c];
+                        p.changedGain[c] = prior->changedGain[c];
                     }
-                    if (prev->second.sat >= 0) p.origSat = prev->second.sat;
-                    p.changedSat = prev->second.changedSat;
+                    if (prior->origSat >= 0) p.origSat = prior->origSat;
+                    p.changedSat = prior->changedSat;
                     // Failure and block state survives re-enumeration, while the
                     // freshly read value, range and type stay authoritative.
                     // This prevents a failure/hot-plug/retry loop on a code that
@@ -950,15 +992,15 @@ void DdcciBackend::DiscoverNow() {
                         merged.rawMaximum = live.rawMaximum;
                         return merged;
                     };
-                    p.brightnessState = mergeState(p.brightnessState, prev->second.bState);
-                    p.contrastState = mergeState(p.contrastState, prev->second.cState);
+                    p.brightnessState = mergeState(p.brightnessState, prior->brightnessState);
+                    p.contrastState = mergeState(p.contrastState, prior->contrastState);
                     for (int c = 0; c < 3; ++c)
-                        p.gainState[c] = mergeState(p.gainState[c], prev->second.gainState[c]);
-                    p.satState = mergeState(p.satState, prev->second.satState);
+                        p.gainState[c] = mergeState(p.gainState[c], prior->gainState[c]);
+                    p.satState = mergeState(p.satState, prior->satState);
                     p.everChanged = p.changedBrightness || p.changedContrast ||
                                     p.changedGain[0] || p.changedGain[1] || p.changedGain[2] ||
                                     p.changedSat;
-                    p.caps = prev->second.caps;
+                    p.caps = prior->caps;
                 }
 
                 // Or-assign, not assign: the flag set above from the monitor
@@ -1382,6 +1424,15 @@ void DdcciBackend::AdoptBaseline(const Baseline& b) {
             if (matches == 1) it = monitors_.find(resolved);
         }
         if (it == monitors_.end()) continue;
+        // Logged when the stored value disagrees with what discovery just read:
+        // that difference is the whole point of the baseline after a crash, and
+        // without the line there is no way to tell from a log whether the
+        // recovery had anything to restore.
+        if (kv.second.first >= 0 && kv.second.first != it->second.origBrightness)
+            KLOG_I(L"DDC/CI: '%s' original brightness restored from the baseline: "
+                   L"%d%% (the panel is carrying %d%%).",
+                   it->second.description.c_str(), kv.second.first,
+                   it->second.origBrightness);
         if (kv.second.first >= 0)  it->second.origBrightness = kv.second.first;
         if (kv.second.second >= 0) it->second.origContrast = kv.second.second;
     }
