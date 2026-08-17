@@ -56,6 +56,19 @@ Portuguese wording left in the Vision tab and in the log is gone.
 - The *test the monitor* button also writes, reads back and restores the red
   gain when the panel exposes it. It answered only for brightness before, which
   left the new colour sliders with detection and no proof.
+- **When the standard brightness register answers but the light does not move,
+  the test now looks for the register that does.** MCCS keeps the backlight on
+  registers of its own — 0x6B *backlight level: white* and 0x13 *backlight
+  control* — and panels exist that answer 0x10 while the lamp follows one of
+  those; a pen display's own menu offering both *Brightness* and *Backlight* is
+  the common case. The alternatives are written, read back and restored the same
+  way, and a register that obeys is reported together with the exact
+  `[modelo:XXX] regra=brightness-vcp:NN` line that makes it permanent. Nothing
+  is guessed and nothing is written during discovery: this runs only when the
+  user asks for the test and only after the standard register has failed. When
+  no register obeys, the report says to look for a feature adjusting the
+  brightness on its own — dynamic contrast, eco and eye-care modes hold the
+  value against anything written to it.
 - The recovery after an abnormal shutdown states which original it restored from
   the baseline and what the panel was carrying instead. It reported only that it
   was recovering, which is not enough to tell from a log whether it had anything

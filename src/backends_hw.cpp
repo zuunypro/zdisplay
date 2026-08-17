@@ -50,6 +50,18 @@ constexpr BYTE VCP_GAIN_BLUE  = 0x1A;
 constexpr BYTE VCP_SATURATION = 0x8A;
 constexpr BYTE kGainCodes[3] = { VCP_GAIN_RED, VCP_GAIN_GREEN, VCP_GAIN_BLUE };
 
+/// Registers that carry the light on panels where 0x10 does not.
+///
+/// MCCS separates luminance (0x10) from the backlight itself (0x6B "backlight
+/// level: white", 0x13 "backlight control"), and panels exist that answer both
+/// while only one of them reaches the lamp. Pen displays are the common case:
+/// their own menu offers "Brightness" and "Backlight" as two entries.
+///
+/// Never written during discovery. They are tried only by the monitor test,
+/// which the user asks for, and only once the standard register has been proven
+/// not to obey.
+constexpr BYTE kBrightnessAlternatives[] = { 0x6B, 0x13 };
+
 constexpr double kMinIntervalMs = 140.0;
 constexpr int    kMaxFailures = 4;
 constexpr int    kMaxAttempts = 3;
@@ -602,6 +614,9 @@ void DdcciBackend::RunRoundTrip() {
     // Queue thread only: every step is a slow command to the monitor.
     struct Job {
         std::wstring key, description;
+        /// EDID identity, so that a register found to work can be reported as
+        /// the exact line that makes it permanent.
+        std::wstring edidId;
         HANDLE handle;
         BYTE brightnessCode;
         bool testBrightness, testGain, viaVcp;
@@ -623,6 +638,9 @@ void DdcciBackend::RunRoundTrip() {
             Job j;
             j.key = kv.first;
             j.description = kv.second.description;
+            if (const MonitorTarget* t = monitors::ByKey(kv.first))
+                if (t->edid.valid)
+                    j.edidId = Format(L"%s%04X", t->edid.manufacturer.c_str(), t->edid.product);
             j.handle = kv.second.handle;
             j.brightnessCode = kv.second.brightnessCode;
             j.testBrightness = b;
@@ -676,9 +694,47 @@ void DdcciBackend::RunRoundTrip() {
         if (::InterlockedCompareExchange(&running_, 0, 0) == 0) return;
 
         std::wstring verdict;
-        if (j.testBrightness)
+        if (j.testBrightness) {
+            const std::wstring result = probe(j.handle, j.brightnessCode, j.viaVcp);
             verdict = Format(L"brightness 0x%02X: %s", (unsigned)j.brightnessCode,
-                             probe(j.handle, j.brightnessCode, j.viaVcp).c_str());
+                             result.c_str());
+
+            // The panel took the command for the standard register and the
+            // light did not follow it. MCCS keeps the backlight on registers of
+            // its own, so before concluding that the monitor cannot be driven,
+            // the ones that carry the light on other panels are tried the same
+            // way — written, read back and put back.
+            if (result.compare(0, 6, L"obeyed") != 0) {
+                bool found = false;
+                for (const BYTE alt : ddc::kBrightnessAlternatives) {
+                    if (::InterlockedCompareExchange(&running_, 0, 0) == 0) return;
+                    if (alt == j.brightnessCode) continue;
+                    ::Sleep((DWORD)ddc::kMinIntervalMs);
+                    const std::wstring altResult = probe(j.handle, alt, j.viaVcp);
+                    // A register the panel does not carry is not worth reporting.
+                    if (altResult == L"did not answer the read") continue;
+                    verdict += Format(L"; 0x%02X: %s", (unsigned)alt, altResult.c_str());
+                    if (altResult.compare(0, 6, L"obeyed") == 0) {
+                        found = true;
+                        verdict += Format(L"  <- this is the one that moves the light. "
+                                          L"Make it permanent with [modelo:%s] "
+                                          L"regra=brightness-vcp:%02X in zdisplay.ini",
+                                          j.edidId.empty() ? L"EDID" : j.edidId.c_str(),
+                                          (unsigned)alt);
+                        break;
+                    }
+                }
+                // Every register answered and none of them moved the panel. The
+                // remaining cause is on the monitor: a feature that adjusts the
+                // light by itself holds the value against anything written to
+                // it, and it is turned off in the monitor's own menu.
+                if (!found)
+                    verdict += L"  (no register obeyed: check the monitor's own menu for a "
+                               L"feature that adjusts brightness automatically - dynamic "
+                               L"contrast, eco or eye-care modes hold the value against "
+                               L"whatever is written)";
+            }
+        }
         if (j.testGain) {
             if (!verdict.empty()) {
                 verdict += L"; ";
